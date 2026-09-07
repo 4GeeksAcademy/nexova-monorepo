@@ -63,6 +63,7 @@ export interface AssetExit {
   office: Office;
   created_at: string;
   user_uuid: string;
+  current_stock: number;
 }
 
 export interface AssetSummary {

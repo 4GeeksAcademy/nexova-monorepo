@@ -45,6 +45,30 @@ def _current_stock(db: Session, asset_id: int) -> int:
     return int(entries) - int(exits)
 
 
+def _stock_by_asset(db: Session) -> dict[int, int]:
+    """Stock de todos los assets en 2 queries (agregadas por asset_id), en vez
+    de 2 queries por asset. Evita el N+1 de `list_products` contra Supabase."""
+    stock: dict[int, int] = {}
+
+    entry_totals = db.exec(
+        select(AssetEntry.asset_id, func.sum(AssetEntry.quantity)).group_by(
+            AssetEntry.asset_id
+        )
+    ).all()
+    for asset_id, total in entry_totals:
+        stock[asset_id] = stock.get(asset_id, 0) + int(total)
+
+    exit_totals = db.exec(
+        select(AssetExit.asset_id, func.sum(AssetExit.quantity)).group_by(
+            AssetExit.asset_id
+        )
+    ).all()
+    for asset_id, total in exit_totals:
+        stock[asset_id] = stock.get(asset_id, 0) - int(total)
+
+    return stock
+
+
 def _get_asset_or_404(db: Session, asset_id: int) -> Asset:
     asset = db.get(Asset, asset_id)
     if asset is None:
@@ -66,7 +90,18 @@ def _asset_to_read(db: Session, asset: Asset) -> AssetRead:
 @router.get("/products", response_model=list[AssetRead])
 def list_products(db: Session = Depends(get_db)) -> list[AssetRead]:
     assets = db.exec(select(Asset)).all()
-    return [_asset_to_read(db, asset) for asset in assets]
+    stock = _stock_by_asset(db)
+    return [
+        AssetRead(
+            id=asset.id,
+            name=asset.name,
+            sku=asset.sku,
+            category=asset.category,
+            office=asset.office,
+            current_stock=stock.get(asset.id, 0),
+        )
+        for asset in assets
+    ]
 
 
 @router.post("/products", response_model=AssetRead, status_code=201)
@@ -146,7 +181,17 @@ def create_outbound_order(
     db.add(exit_)
     db.commit()
     db.refresh(exit_)
-    return AssetExitRead.model_validate(exit_)
+    return AssetExitRead(
+        id=exit_.id,
+        asset_id=exit_.asset_id,
+        quantity=exit_.quantity,
+        exit_type=exit_.exit_type,
+        assigned_to=exit_.assigned_to,
+        office=exit_.office,
+        created_at=exit_.created_at,
+        user_uuid=exit_.user_uuid,
+        current_stock=available - payload.quantity,
+    )
 
 
 @router.get("/orders", response_model=list[OrderRead])

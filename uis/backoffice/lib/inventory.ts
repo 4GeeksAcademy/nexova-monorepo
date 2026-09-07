@@ -61,33 +61,58 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// Caché en memoria de la lista de productos: evita repetir la consulta al
+// backend cada vez que se navega entre "Registrar entrada" / "Registrar
+// salida" / "Productos" dentro de la misma sesión del navegador.
+let productsCache: Promise<Asset[]> | null = null;
+
 export function listProducts(): Promise<Asset[]> {
-  return requestJson<Asset[]>("/products");
+  if (!productsCache) {
+    productsCache = requestJson<Asset[]>("/products").catch((err) => {
+      productsCache = null;
+      throw err;
+    });
+  }
+  return productsCache;
+}
+
+function invalidateProductsCache(): void {
+  productsCache = null;
 }
 
 export function getProduct(assetId: number): Promise<Asset> {
   return requestJson<Asset>(`/products/${assetId}`);
 }
 
-export function createProduct(payload: AssetCreatePayload): Promise<Asset> {
-  return requestJson<Asset>("/products", {
+export async function createProduct(payload: AssetCreatePayload): Promise<Asset> {
+  const asset = await requestJson<Asset>("/products", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  invalidateProductsCache();
+  return asset;
 }
 
-export function createInboundOrder(payload: AssetEntryCreatePayload): Promise<AssetEntry> {
-  return requestJson<AssetEntry>("/orders/inbound", {
+export async function createInboundOrder(
+  payload: AssetEntryCreatePayload
+): Promise<AssetEntry> {
+  const entry = await requestJson<AssetEntry>("/orders/inbound", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  invalidateProductsCache();
+  return entry;
 }
 
-export function createOutboundOrder(payload: AssetExitCreatePayload): Promise<AssetExit> {
-  return requestJson<AssetExit>("/orders/outbound", {
+export async function createOutboundOrder(
+  payload: AssetExitCreatePayload
+): Promise<AssetExit> {
+  const exit = await requestJson<AssetExit>("/orders/outbound", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  invalidateProductsCache();
+  return exit;
 }
 
 export function listOrders(): Promise<Order[]> {
