@@ -94,6 +94,7 @@ class AssetExitRead(BaseModel):
     office: str
     created_at: datetime
     user_uuid: str
+    current_stock: int
 
     model_config = ConfigDict(from_attributes=True)
 

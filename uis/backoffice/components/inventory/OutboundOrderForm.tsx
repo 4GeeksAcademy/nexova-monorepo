@@ -92,7 +92,7 @@ export default function OutboundOrderForm({
 
     setIsSubmitting(true);
     try {
-      await createOutboundOrder({
+      const exit = await createOutboundOrder({
         asset_id: Number(assetId),
         quantity: parsedQuantity,
         exit_type: exitType,
@@ -101,9 +101,9 @@ export default function OutboundOrderForm({
       });
       setSuccess(true);
       resetForm();
-      // Refrescar el stock mostrado tras el envío exitoso.
-      const asset = await getProduct(Number(assetId));
-      setAvailableStock(asset.current_stock);
+      // La propia respuesta ya trae el stock resultante: no hace falta
+      // otra llamada a getProduct() para refrescarlo.
+      setAvailableStock(exit.current_stock);
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
         setFieldError(err.message);
