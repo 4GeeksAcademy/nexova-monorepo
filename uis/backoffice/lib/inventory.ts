@@ -43,15 +43,31 @@ async function readErrorDetail(res: Response): Promise<string> {
   return `Error inesperado (HTTP ${res.status}).`;
 }
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_PATH}${path}`, {
-    ...init,
-    headers: {
-      ...authHeaders(),
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_PATH}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        ...authHeaders(),
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(504, "La API tardó demasiado en responder. Inténtalo de nuevo.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     handleUnauthorized(res);

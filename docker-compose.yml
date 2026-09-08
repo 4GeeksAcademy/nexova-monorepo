@@ -30,11 +30,11 @@ services:
       - "3000:3000"
       - "3001:3001"
     volumes:
-      - ./uis/website/my-app:/app/website
-      - /app/website/node_modules
-      - ./uis/backoffice:/app/backoffice
-      - /app/backoffice/node_modules
-      - ./src:/src:ro
+      - ./uis/website/my-app:/app/uis/website
+      - /app/uis/website/node_modules
+      - ./uis/backoffice:/app/uis/backoffice
+      - /app/uis/backoffice/node_modules
+      - ./src:/app/src:ro
     environment:
       - BACKEND_API_URL=${BACKEND_API_URL}
       - WATCHPACK_POLLING=true
