@@ -31,6 +31,7 @@ export default function DashboardLayout({
             <li>
               <Link
                 href="/incidents"
+                prefetch={false}
                 className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
               >
                 Analizador de incidencias
@@ -39,6 +40,7 @@ export default function DashboardLayout({
             <li>
               <Link
                 href="/inventory/products"
+                prefetch={false}
                 className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
               >
                 Inventario de activos

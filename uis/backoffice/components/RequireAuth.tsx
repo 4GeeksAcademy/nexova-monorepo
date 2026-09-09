@@ -1,28 +1,23 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getToken } from "@/lib/auth-storage";
-import { useAuth } from "@/lib/AuthContext";
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { loading } = useAuth();
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (loading) {
-      return;
-    }
-    if (!getToken()) {
+    if (getToken()) {
+      setAuthorized(true);
+    } else {
+      setAuthorized(false);
       router.replace("/login");
     }
-  }, [loading, router]);
+  }, [router]);
 
-  if (loading) {
-    return <p className="p-6 text-sm text-slate-400">Comprobando sesion...</p>;
-  }
-
-  if (!getToken()) {
+  if (!authorized) {
     return null;
   }
 
