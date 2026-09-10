@@ -209,6 +209,33 @@ class User(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserRegistered(BaseModel):
+    """Respuesta de `POST /users` (registro). Sin `email`: es un flujo de
+    auth no autenticado y no debe reenviar el email en el body."""
+
+    id: str
+    is_active: bool
+    role: Role
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Respuestas genéricas compartidas ----------------------------------------
+
+
+class MessageResponse(BaseModel):
+    detail: str
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
 # --- Inventario (Hito 5, Nexova) — modelos ORM (SQLModel) --------------------
 #
 # Viven en Supabase, separados de TinyDB. `current_stock` nunca es una

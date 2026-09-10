@@ -20,6 +20,7 @@ from models import (
     ForgotPasswordRequest,
     LoginRequest,
     MeRead,
+    MessageResponse,
     ResetPasswordRequest,
     Token,
     User,
@@ -63,8 +64,8 @@ def read_me(current_user: User = Depends(get_current_user)) -> MeRead:
     return MeRead(email=current_user.email, role=current_user.role, profile=profile)
 
 
-@router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(payload: ForgotPasswordRequest) -> MessageResponse:
     # Respuesta siempre 200 con mensaje generico: no debe revelar si el email existe.
     user = get_user_by_email(payload.email)
     if user is not None and user.is_active:
@@ -76,11 +77,11 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
             # ni tumbar la petición: se registra y se responde igual que siempre.
             logger.exception("Fallo al enviar el email de reset a %s", user.id)
 
-    return {"detail": GENERIC_FORGOT_PASSWORD_MESSAGE}
+    return MessageResponse(detail=GENERIC_FORGOT_PASSWORD_MESSAGE)
 
 
-@router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(payload: ResetPasswordRequest) -> MessageResponse:
     user_id = consume_reset_token(payload.token)
     if user_id is None:
         raise HTTPException(
@@ -89,14 +90,14 @@ def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
         )
 
     set_user_password(user_id, payload.new_password)
-    return {"detail": "Contraseña actualizada correctamente."}
+    return MessageResponse(detail="Contraseña actualizada correctamente.")
 
 
-@router.post("/change-password")
+@router.post("/change-password", response_model=MessageResponse)
 def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
+) -> MessageResponse:
     if not verify_password(payload.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -104,4 +105,4 @@ def change_password(
         )
 
     set_user_password(current_user.id, payload.new_password)
-    return {"detail": "Contraseña actualizada correctamente."}
+    return MessageResponse(detail="Contraseña actualizada correctamente.")

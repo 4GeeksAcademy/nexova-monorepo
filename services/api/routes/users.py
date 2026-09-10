@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from tinydb import Query, TinyDB
 
-from models import Role, User, UserCreate, UserRead, UserUpdate
+from models import DeleteResponse, Role, User, UserCreate, UserRead, UserRegistered, UserUpdate
 from routes.profiles import create_profile, delete_profile_by_user_id
 from security import get_current_user, hash_password
 
@@ -81,8 +81,8 @@ def _require_self_or_admin(target_user_id: str, current_user: User) -> None:
         )
 
 
-@router.post("", response_model=UserRead, status_code=201)
-def create_user(payload: UserCreate) -> UserRead:
+@router.post("", response_model=UserRegistered, status_code=201)
+def create_user(payload: UserCreate) -> UserRegistered:
     db, table = _get_table()
     try:
         normalized_email = str(payload.email).strip().lower()
@@ -114,7 +114,7 @@ def create_user(payload: UserCreate) -> UserRead:
         address=payload.address,
     )
 
-    return UserRead.model_validate(user)
+    return UserRegistered.model_validate(user)
 
 
 @router.get("", response_model=list[UserRead])
@@ -182,8 +182,8 @@ def update_user(
         db.close()
 
 
-@router.delete("/{user_id}")
-def delete_user(user_id: str, current_user: User = Depends(get_current_user)) -> dict[str, bool]:
+@router.delete("/{user_id}", response_model=DeleteResponse)
+def delete_user(user_id: str, current_user: User = Depends(get_current_user)) -> DeleteResponse:
     _require_self_or_admin(user_id, current_user)
 
     db, table = _get_table()
@@ -197,4 +197,4 @@ def delete_user(user_id: str, current_user: User = Depends(get_current_user)) ->
 
     delete_profile_by_user_id(user_id)
 
-    return {"deleted": True}
+    return DeleteResponse(deleted=True)

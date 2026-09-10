@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from tinydb import TinyDB
 
-from models import Country, ProviderCreate, Status, User, VALID_CATEGORIES
+from models import Country, DeleteResponse, ProviderCreate, Status, User, VALID_CATEGORIES
 from security import get_current_user
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "suppliers.json"
@@ -22,9 +22,23 @@ class SupplierCreate(ProviderCreate):
     notes: str | None = None
 
 
-class SupplierRead(SupplierCreate):
+class SupplierRead(BaseModel):
+    """Esquema de salida, declarado con sus propios campos — independiente
+    de `SupplierCreate` para no acoplar el contrato de lectura al de escritura."""
+
     id: int
+    name: str
+    country: Country
+    categories: list[str]
+    monthly_rate: float
+    currency: str
+    status: Status
+    contract_renewal_date: str | None = None
+    contact_email: EmailStr | None = None
+    notes: str | None = None
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RateUpdate(BaseModel):
@@ -152,10 +166,10 @@ def update_supplier_status(
         db.close()
 
 
-@router.delete("/{supplier_id}")
+@router.delete("/{supplier_id}", response_model=DeleteResponse)
 def delete_supplier(
     supplier_id: int, current_user: User = Depends(get_current_user)
-) -> dict[str, bool]:
+) -> DeleteResponse:
     db, table = _get_table()
     try:
         existing = table.get(doc_id=supplier_id)
@@ -163,6 +177,6 @@ def delete_supplier(
             raise HTTPException(status_code=404, detail="Supplier not found.")
 
         table.remove(doc_ids=[supplier_id])
-        return {"deleted": True}
+        return DeleteResponse(deleted=True)
     finally:
         db.close()
