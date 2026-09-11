@@ -30,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import incidents
 from database import create_db_and_tables
+from models import HealthResponse
 from routers import inventory
 from routes import auth, profiles, suppliers, users
 
@@ -66,6 +67,6 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 
 
-@app.get("/api/health")
-async def health() -> dict:
-    return {"status": "ok"}
+@app.get("/api/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok")

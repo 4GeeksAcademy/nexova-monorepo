@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 import incidents_analyzer as ia
 
+from app.schemas import IncidentAnalysisSummary
 from app.state import get_last_summary, set_last_summary
 from models import User
 from security import get_current_user
@@ -21,10 +22,10 @@ router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB, margen para producción
 
 
-@router.post("/analyze")
+@router.post("/analyze", response_model=IncidentAnalysisSummary)
 async def analyze_incidents(
     file: UploadFile = File(...), current_user: User = Depends(get_current_user)
-) -> dict:
+) -> IncidentAnalysisSummary:
     """
     Recibe un CSV como multipart/form-data, ejecuta la misma lógica de
     validación y análisis que el script de la Fase 1, y devuelve el
@@ -75,7 +76,7 @@ async def analyze_incidents(
     # Se guarda para que GET /api/incidents/results/export pueda descargarlo.
     set_last_summary(summary)
 
-    return summary
+    return IncidentAnalysisSummary.model_validate(summary)
 
 
 @router.get("/results/export")
