@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from tinydb import TinyDB
 
+import cache
 from models import Country, DeleteResponse, ProviderCreate, Status, User, VALID_CATEGORIES
 from security import get_current_user
 
@@ -14,6 +15,12 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "suppliers.json"
 TABLE_NAME = "suppliers"
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
+
+# Catálogo poco cambiante (contratos, no operación diaria): TTL más largo
+# que el de inventario. Clave por combinación de filtros — ver
+# CACHING_REPORT.md.
+_SUPPLIERS_CACHE_PREFIX = "suppliers:"
+_SUPPLIERS_TTL_SECONDS = 120
 
 
 class SupplierCreate(ProviderCreate):
@@ -73,6 +80,7 @@ def create_supplier(
         created = table.get(doc_id=doc_id)
         if created is None:
             raise HTTPException(status_code=500, detail="No se pudo crear el proveedor.")
+        cache.invalidate(_SUPPLIERS_CACHE_PREFIX)
         return _doc_to_response(created)
     finally:
         db.close()
@@ -89,19 +97,24 @@ def list_suppliers(
             detail=f"Invalid category '{category}'. Valid values: {VALID_CATEGORIES}",
         )
 
-    db, table = _get_table()
-    try:
-        docs = table.all()
+    cache_key = f"{_SUPPLIERS_CACHE_PREFIX}{country.value if country else ''}:{category or ''}"
 
-        if country is not None:
-            docs = [doc for doc in docs if doc.get("country") == country.value]
+    def _compute() -> list[SupplierRead]:
+        db, table = _get_table()
+        try:
+            docs = table.all()
 
-        if category is not None:
-            docs = [doc for doc in docs if category in doc.get("categories", [])]
+            if country is not None:
+                docs = [doc for doc in docs if doc.get("country") == country.value]
 
-        return [_doc_to_response(doc) for doc in docs]
-    finally:
-        db.close()
+            if category is not None:
+                docs = [doc for doc in docs if category in doc.get("categories", [])]
+
+            return [_doc_to_response(doc) for doc in docs]
+        finally:
+            db.close()
+
+    return cache.get_or_set(cache_key, _SUPPLIERS_TTL_SECONDS, _compute)
 
 
 @router.get("/{supplier_id}", response_model=SupplierRead)
@@ -139,6 +152,7 @@ def update_supplier_rate(
         updated = table.get(doc_id=supplier_id)
         if updated is None:
             raise HTTPException(status_code=404, detail="Supplier not found.")
+        cache.invalidate(_SUPPLIERS_CACHE_PREFIX)
         return _doc_to_response(updated)
     finally:
         db.close()
@@ -161,6 +175,7 @@ def update_supplier_status(
         updated = table.get(doc_id=supplier_id)
         if updated is None:
             raise HTTPException(status_code=404, detail="Supplier not found.")
+        cache.invalidate(_SUPPLIERS_CACHE_PREFIX)
         return _doc_to_response(updated)
     finally:
         db.close()
@@ -177,6 +192,7 @@ def delete_supplier(
             raise HTTPException(status_code=404, detail="Supplier not found.")
 
         table.remove(doc_ids=[supplier_id])
+        cache.invalidate(_SUPPLIERS_CACHE_PREFIX)
         return DeleteResponse(deleted=True)
     finally:
         db.close()

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { EXIT_TYPE_LABELS } from "@/lib/inventory-labels";
 import type { Order } from "@/lib/inventory-types";
 
@@ -9,6 +10,14 @@ function formatDate(iso: string): string {
 }
 
 export default function OrdersHistoryTable({ orders }: { orders: Order[] }) {
+  const sorted = useMemo(
+    () =>
+      [...orders].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ),
+    [orders]
+  );
+
   if (orders.length === 0) {
     return (
       <p className="rounded-lg border border-stone-200 bg-white px-4 py-6 text-center text-sm text-stone-500">
@@ -16,10 +25,6 @@ export default function OrdersHistoryTable({ orders }: { orders: Order[] }) {
       </p>
     );
   }
-
-  const sorted = [...orders].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
 
   return (
     <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">

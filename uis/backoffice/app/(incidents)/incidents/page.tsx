@@ -1,15 +1,20 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import FileUploader from "@/components/incidents/FileUploader";
-import CategoryBreakdown from "@/components/incidents/CategoryBreakdown";
-import ExportButton from "@/components/incidents/ExportButton";
-import InvalidBreakdown from "@/components/incidents/InvalidBreakdown";
-import SatisfactionIndex from "@/components/incidents/SatisfactionIndex";
-import StatusBreakdown from "@/components/incidents/StatusBreakdown";
-import SummaryHeader from "@/components/incidents/SummaryHeader";
 import { analyzeIncidentsFile, ApiError } from "@/lib/api";
 import type { AnalysisSummary } from "@/lib/types";
+
+// Solo se renderizan tras analizar un CSV subido por el usuario — nunca en
+// la carga inicial de la ruta. Se difiere su JS con next/dynamic para no
+// pagarlo hasta que hay un resultado que mostrar (ver CACHING_REPORT.md).
+const SummaryHeader = dynamic(() => import("@/components/incidents/SummaryHeader"));
+const InvalidBreakdown = dynamic(() => import("@/components/incidents/InvalidBreakdown"));
+const SatisfactionIndex = dynamic(() => import("@/components/incidents/SatisfactionIndex"));
+const CategoryBreakdown = dynamic(() => import("@/components/incidents/CategoryBreakdown"));
+const StatusBreakdown = dynamic(() => import("@/components/incidents/StatusBreakdown"));
+const ExportButton = dynamic(() => import("@/components/incidents/ExportButton"));
 
 export default function IncidentsPage() {
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);

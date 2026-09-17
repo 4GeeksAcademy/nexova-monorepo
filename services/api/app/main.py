@@ -14,8 +14,10 @@ Ejecución local:
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+import time
 
 # --- Hacer importable el paquete compartido sin necesidad de `pip install` ---
 try:
@@ -25,7 +27,7 @@ except ImportError:
     _shared_pkg = os.path.join(_here, "..", "..", "..", "packages", "incidents-analyzer")
     sys.path.insert(0, os.path.abspath(_shared_pkg))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import incidents
@@ -34,11 +36,26 @@ from models import HealthResponse
 from routers import inventory
 from routes import auth, profiles, suppliers, users
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("api.timing")
+
 app = FastAPI(
     title="Nexova API",
     description="API centralizada de Nexova — soporte, operaciones y más.",
     version="0.1.0",
 )
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = (time.perf_counter() - start) * 1000  # ms
+
+    logger.info(
+        f"{request.method} {request.url.path} → {response.status_code} | {duration:.1f}ms"
+    )
+    return response
 
 
 @app.on_event("startup")

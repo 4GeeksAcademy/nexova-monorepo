@@ -1,9 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import OrdersHistoryTable from "@/components/inventory/OrdersHistoryTable";
 import { ApiError, listOrders } from "@/lib/inventory";
 import type { Order } from "@/lib/inventory-types";
+
+// Solo se necesita una vez resuelto el fetch (ver el guard `isLoading` más
+// abajo); diferir su JS con next/dynamic reduce lo que hace falta para el
+// primer render de la ruta (ver CACHING_REPORT.md).
+const OrdersHistoryTable = dynamic(() => import("@/components/inventory/OrdersHistoryTable"));
 
 export default function OrdersHistoryPage() {
   const [orders, setOrders] = useState<Order[]>([]);

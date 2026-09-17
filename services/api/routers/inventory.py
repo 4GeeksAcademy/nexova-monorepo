@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, func, select
 
+import cache
 from database import get_db
 from models import Asset, AssetEntry, AssetExit, User
 from schemas import (
@@ -29,6 +30,14 @@ from schemas import (
 from security import get_current_user
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
+# TTL cortos: stock y órdenes son datos operativos que cambian con cada
+# movimiento, pero cachear 30s evita recalcular agregaciones en ráfagas de
+# lecturas (ver CACHING_REPORT.md).
+_PRODUCTS_CACHE_KEY = "inventory:products"
+_PRODUCTS_TTL_SECONDS = 30
+_ORDERS_CACHE_KEY = "inventory:orders"
+_ORDERS_TTL_SECONDS = 30
 
 
 def _current_stock(db: Session, asset_id: int) -> int:
@@ -89,19 +98,22 @@ def _asset_to_read(db: Session, asset: Asset) -> AssetRead:
 
 @router.get("/products", response_model=list[AssetRead])
 def list_products(db: Session = Depends(get_db)) -> list[AssetRead]:
-    assets = db.exec(select(Asset)).all()
-    stock = _stock_by_asset(db)
-    return [
-        AssetRead(
-            id=asset.id,
-            name=asset.name,
-            sku=asset.sku,
-            category=asset.category,
-            office=asset.office,
-            current_stock=stock.get(asset.id, 0),
-        )
-        for asset in assets
-    ]
+    def _compute() -> list[AssetRead]:
+        assets = db.exec(select(Asset)).all()
+        stock = _stock_by_asset(db)
+        return [
+            AssetRead(
+                id=asset.id,
+                name=asset.name,
+                sku=asset.sku,
+                category=asset.category,
+                office=asset.office,
+                current_stock=stock.get(asset.id, 0),
+            )
+            for asset in assets
+        ]
+
+    return cache.get_or_set(_PRODUCTS_CACHE_KEY, _PRODUCTS_TTL_SECONDS, _compute)
 
 
 @router.post("/products", response_model=AssetRead, status_code=201)
@@ -120,6 +132,7 @@ def create_product(
     db.add(asset)
     db.commit()
     db.refresh(asset)
+    cache.invalidate(_PRODUCTS_CACHE_KEY)
     return _asset_to_read(db, asset)
 
 
@@ -148,6 +161,8 @@ def create_inbound_order(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    cache.invalidate(_PRODUCTS_CACHE_KEY)
+    cache.invalidate(_ORDERS_CACHE_KEY)
     return AssetEntryRead.model_validate(entry)
 
 
@@ -181,6 +196,8 @@ def create_outbound_order(
     db.add(exit_)
     db.commit()
     db.refresh(exit_)
+    cache.invalidate(_PRODUCTS_CACHE_KEY)
+    cache.invalidate(_ORDERS_CACHE_KEY)
     return AssetExitRead(
         id=exit_.id,
         asset_id=exit_.asset_id,
@@ -199,42 +216,45 @@ def list_orders(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[OrderRead]:
-    assets_by_id = {asset.id: asset for asset in db.exec(select(Asset)).all()}
+    def _compute() -> list[OrderRead]:
+        assets_by_id = {asset.id: asset for asset in db.exec(select(Asset)).all()}
 
-    def _summary(asset_id: int) -> AssetSummary:
-        asset = assets_by_id[asset_id]
-        return AssetSummary(id=asset.id, name=asset.name, sku=asset.sku)
+        def _summary(asset_id: int) -> AssetSummary:
+            asset = assets_by_id[asset_id]
+            return AssetSummary(id=asset.id, name=asset.name, sku=asset.sku)
 
-    orders: list[OrderRead] = []
+        orders: list[OrderRead] = []
 
-    for entry in db.exec(select(AssetEntry)).all():
-        orders.append(
-            OrderRead(
-                order_type="inbound",
-                id=entry.id,
-                asset=_summary(entry.asset_id),
-                quantity=entry.quantity,
-                office=entry.office,
-                created_at=entry.created_at,
-                user_uuid=entry.user_uuid,
-                supplier=entry.supplier,
+        for entry in db.exec(select(AssetEntry)).all():
+            orders.append(
+                OrderRead(
+                    order_type="inbound",
+                    id=entry.id,
+                    asset=_summary(entry.asset_id),
+                    quantity=entry.quantity,
+                    office=entry.office,
+                    created_at=entry.created_at,
+                    user_uuid=entry.user_uuid,
+                    supplier=entry.supplier,
+                )
             )
-        )
 
-    for exit_ in db.exec(select(AssetExit)).all():
-        orders.append(
-            OrderRead(
-                order_type="outbound",
-                id=exit_.id,
-                asset=_summary(exit_.asset_id),
-                quantity=exit_.quantity,
-                office=exit_.office,
-                created_at=exit_.created_at,
-                user_uuid=exit_.user_uuid,
-                exit_type=exit_.exit_type,
-                assigned_to=exit_.assigned_to,
+        for exit_ in db.exec(select(AssetExit)).all():
+            orders.append(
+                OrderRead(
+                    order_type="outbound",
+                    id=exit_.id,
+                    asset=_summary(exit_.asset_id),
+                    quantity=exit_.quantity,
+                    office=exit_.office,
+                    created_at=exit_.created_at,
+                    user_uuid=exit_.user_uuid,
+                    exit_type=exit_.exit_type,
+                    assigned_to=exit_.assigned_to,
+                )
             )
-        )
 
-    orders.sort(key=lambda o: o.created_at)
-    return orders
+        orders.sort(key=lambda o: o.created_at)
+        return orders
+
+    return cache.get_or_set(_ORDERS_CACHE_KEY, _ORDERS_TTL_SECONDS, _compute)
