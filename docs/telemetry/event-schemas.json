@@ -1,0 +1,564 @@
+{
+  "$schemaVersion": "1.0.0",
+  "$description": "Esquema personalizado y documentado (no JSON Schema draft-07) para el catálogo de telemetría de Nexova. Ver docs/telemetry/telemetry-plan.md para el razonamiento de negocio, PII y estrategia de entrega. Cada evento define su propio allowlist cerrado en 'properties' — cualquier clave no listada debe descartarse en el punto de emisión.",
+
+  "envelope": {
+    "description": "Campos presentes en TODOS los eventos, fuera de 'properties'.",
+    "fields": {
+      "eventId": { "type": "string", "format": "uuid", "required": true, "description": "Identificador único del evento, generado en el punto de emisión." },
+      "timestamp": { "type": "string", "format": "date-time-iso8601-utc", "required": true, "description": "Momento de ocurrencia, no de ingesta." },
+      "event_type": { "type": "string", "pattern": "^[a-z]+(_[a-z]+)*$", "required": true, "description": "Taxonomía entidad_acción. Debe coincidir con una clave de 'events' en este documento." },
+      "schemaVersion": { "type": "string", "format": "semver", "required": true, "description": "Versión del schema de 'properties' para este event_type." },
+      "sessionId": { "type": ["string", "null"], "format": "uuid", "required": true, "description": "Sesión de backoffice (header X-Session-Id). null solo antes de resolver login." },
+      "userId": { "type": ["string", "null"], "format": "uuid", "required": true, "description": "UUID de usuario en TinyDB. null solo cuando aún no se conoce identidad o cuando incluirlo violaría el propósito del evento (ver password_reset_requested)." },
+      "requestId": { "type": ["string", "null"], "required": true, "description": "Correlación frontend-backend-logs (header X-Request-Id). null solo en eventos 100% cliente sin llamada a la API asociada." },
+      "source": { "type": "string", "enum": ["frontend", "backend"], "required": true, "description": "Extensión sobre el mínimo del README: de qué proceso vino el evento." },
+      "properties": { "type": "object", "required": true, "description": "Payload específico del evento. Ver 'events.<event_type>.properties'." }
+    }
+  },
+
+  "shared_enums": {
+    "office": ["valencia", "miami"],
+    "currency": ["EUR", "USD"],
+    "product_category": ["training_kit", "certification", "onboarding_equipment"],
+    "role": ["admin", "manager", "user"],
+    "supplier_country": ["Spain", "USA"]
+  },
+
+  "events": {
+
+    "inbound_order_created": {
+      "category": "negocio-inventario",
+      "classification": "obligatorio",
+      "source": "backend",
+      "description": "Se emite al confirmar POST /inventory/orders/inbound.",
+      "hypothesis": "Necesitamos saber cuánto material se produce/compra, para qué programa y con qué costo.",
+      "decision": "Planificar la producción de material según demanda esperada de matrículas (Elena).",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "order_id": { "type": "integer", "required": true, "description": "AssetEntry.id" },
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": true, "description": "Asset.id" },
+        "product_category": { "type": "string", "enum_ref": "product_category", "required": true, "note_dependency": "Asset.category actual usa otros valores (hardware/peripherals/office_supplies/training_materials); requiere mapeo o migración de categorías para Nexova-telemetry." },
+        "programme_id": { "type": "string", "required": true, "note_dependency": "No existe hoy como campo de Asset — ver telemetry-plan.md §3.4.3" },
+        "quantity": { "type": "integer", "required": true, "minimum": 1 },
+        "currency": { "type": "string", "enum_ref": "currency", "required": true },
+        "unit_cost": { "type": "number", "required": false, "note_dependency": "AssetEntry no tiene coste unitario hoy — ver telemetry-plan.md §2.1" },
+        "supplier_id": { "type": "string", "required": false, "description": "Referencia al catálogo /suppliers cuando el proveedor de la entrada coincide con uno registrado." },
+        "supplier_name": { "type": "string", "required": false, "description": "Fallback cuando el proveedor no está en el catálogo (texto libre actual de AssetEntry.supplier). No es PII: es una razón social." }
+      },
+      "allowlist": ["order_id", "office", "product_id", "product_category", "programme_id", "quantity", "currency", "unit_cost", "supplier_id", "supplier_name"]
+    },
+
+    "outbound_order_created": {
+      "category": "negocio-inventario",
+      "classification": "obligatorio",
+      "source": "backend",
+      "description": "Se emite al confirmar POST /inventory/orders/outbound.",
+      "hypothesis": "Necesitamos saber qué programas consumen más material y a qué ritmo.",
+      "decision": "Anticipar necesidades de reposición antes de una ola grande de matrículas (Elena).",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "AssetExit.assigned_to (texto libre, puede ser un nombre de persona) se EXCLUYE deliberadamente del allowlist. Ver telemetry-plan.md §3.1.",
+      "properties": {
+        "order_id": { "type": "integer", "required": true, "description": "AssetExit.id" },
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": true },
+        "product_category": { "type": "string", "enum_ref": "product_category", "required": true },
+        "programme_id": { "type": "string", "required": true, "note_dependency": "ver inbound_order_created" },
+        "quantity": { "type": "integer", "required": true, "minimum": 1 },
+        "currency": { "type": "string", "enum_ref": "currency", "required": true },
+        "exit_type": { "type": "string", "enum": ["allocation", "consumption"], "required": true },
+        "recipient_type": { "type": "string", "enum": ["candidate", "client", "consultant", "support_agent", "internal_other"], "required": false, "description": "Sustituto no identificable de assigned_to. No implementado hoy: requiere añadir un selector categórico al formulario además del nombre libre." }
+      },
+      "allowlist": ["order_id", "office", "product_id", "product_category", "programme_id", "quantity", "currency", "exit_type", "recipient_type"]
+    },
+
+    "stock_threshold_triggered": {
+      "category": "negocio-inventario",
+      "classification": "obligatorio",
+      "source": "backend",
+      "description": "Se emite cuando, tras una orden de salida, el stock recalculado de un producto cruza de >=umbral a <umbral. Edge-triggered, no se reemite mientras siga por debajo.",
+      "hypothesis": "Necesitamos saber con qué frecuencia un programa se queda sin material disponible.",
+      "decision": "Ajustar el umbral mínimo o acelerar la reimpresión/reproducción de ese material (Elena).",
+      "delivery": "stream",
+      "throttle": "edge-triggered: una sola emisión por cruce de umbral, ver telemetry-plan.md §3.3",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "note_dependency": "Requiere un campo min_stock_threshold en Asset, inexistente hoy — ver telemetry-plan.md §2.1. 'currency' no aplica a este evento — no representa una transacción monetaria, es un estado de stock.",
+      "properties": {
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": true },
+        "product_category": { "type": "string", "enum_ref": "product_category", "required": true },
+        "programme_id": { "type": "string", "required": true },
+        "quantity": { "type": "integer", "required": true, "description": "Stock actual en el momento del disparo (alias del campo mínimo 'quantity' exigido por el CONTEXT para eventos de inventario)." },
+        "threshold": { "type": "integer", "required": true, "description": "Umbral mínimo configurado para el producto." },
+        "triggered_by_order_id": { "type": "integer", "required": false, "description": "AssetExit.id que provocó el cruce." }
+      },
+      "allowlist": ["office", "product_id", "product_category", "programme_id", "quantity", "threshold", "triggered_by_order_id"]
+    },
+
+    "direct_stock_edit_rejected": {
+      "category": "negocio-inventario",
+      "classification": "obligatorio",
+      "source": "backend",
+      "description": "Se emite cuando un usuario intenta modificar stock fuera de una orden trazable y el sistema lo rechaza. Ver dependencia de diseño de API en telemetry-plan.md §2.1 — hoy no existe endpoint que pueda disparar este evento.",
+      "hypothesis": "Necesitamos saber si el personal intenta saltarse el control de trazabilidad del material.",
+      "decision": "Reforzar capacitación o permisos en la oficina donde esto ocurre con más frecuencia (Patricia).",
+      "delivery": "stream",
+      "throttle": "ninguno — se captura cada intento, es una señal de seguridad/cumplimiento",
+      "contains_pii": false,
+      "sanitization": "n/a (el identificador del usuario que intentó la acción va en el envelope como userId, no se duplica en properties)",
+      "properties": {
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": false, "description": "Puede ser null si el intento no referenciaba un producto válido." },
+        "attempted_action": { "type": "string", "enum": ["direct_field_update", "bulk_import_bypass"], "required": true },
+        "rejection_reason": { "type": "string", "enum": ["no_direct_write_endpoint", "insufficient_role"], "required": true }
+      },
+      "allowlist": ["office", "product_id", "attempted_action", "rejection_reason"]
+    },
+
+    "kit_cost_variance_detected": {
+      "category": "negocio-inventario",
+      "classification": "obligatorio",
+      "source": "backend",
+      "description": "Se emite cuando el unit_cost de una orden de entrada nueva se desvía más del umbral configurado respecto a la línea base histórica del mismo producto+proveedor.",
+      "hypothesis": "Necesitamos saber cuándo un proveedor de material sube precios de forma anómala.",
+      "decision": "Alertar a Elena y a Laura para renegociar o buscar proveedor alterno.",
+      "delivery": "stream",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "note_dependency": "Requiere unit_cost en AssetEntry y un cálculo de línea base histórica — ninguno existe hoy. Ver telemetry-plan.md §2.1.",
+      "properties": {
+        "order_id": { "type": "integer", "required": true },
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": true },
+        "programme_id": { "type": "string", "required": true },
+        "supplier_id": { "type": "string", "required": false },
+        "supplier_name": { "type": "string", "required": false },
+        "quantity": { "type": "integer", "required": true },
+        "currency": { "type": "string", "enum_ref": "currency", "required": true },
+        "unit_cost": { "type": "number", "required": true },
+        "baseline_unit_cost": { "type": "number", "required": true, "description": "Media móvil histórica para el mismo producto+proveedor." },
+        "variance_pct": { "type": "number", "required": true },
+        "threshold_pct": { "type": "number", "required": true, "description": "Umbral configurado, ej. 10." }
+      },
+      "allowlist": ["order_id", "office", "product_id", "programme_id", "supplier_id", "supplier_name", "quantity", "currency", "unit_cost", "baseline_unit_cost", "variance_pct", "threshold_pct"]
+    },
+
+    "product_created": {
+      "category": "negocio-inventario",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite al confirmar POST /inventory/products.",
+      "hypothesis": "Necesitamos saber con qué frecuencia se amplía el catálogo de material y en qué categoría/oficina.",
+      "decision": "Detectar catálogos desbalanceados entre oficinas o categorías subrepresentadas, para priorizar qué material diseñar/producir a continuación (Elena).",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "product_id": { "type": "integer", "required": true },
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_category": { "type": "string", "enum_ref": "product_category", "required": true },
+        "programme_id": { "type": "string", "required": false },
+        "sku": { "type": "string", "required": true }
+      },
+      "allowlist": ["product_id", "office", "product_category", "programme_id", "sku"]
+    },
+
+    "product_creation_rejected": {
+      "category": "negocio-inventario",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite cuando POST /inventory/products devuelve 400 (SKU duplicado u otra validación).",
+      "hypothesis": "Necesitamos saber si el personal intenta crear productos duplicados o con datos inválidos con frecuencia.",
+      "decision": "Si un patrón se repite (mismo SKU varias veces), priorizar una vista de 'buscar antes de crear' en el frontend.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "attempted_sku": { "type": "string", "required": true, "description": "No es PII: es un código de producto interno." },
+        "rejection_reason": { "type": "string", "enum": ["duplicate_sku", "validation_error"], "required": true }
+      },
+      "allowlist": ["office", "attempted_sku", "rejection_reason"]
+    },
+
+    "inbound_order_rejected": {
+      "category": "negocio-inventario",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite cuando POST /inventory/orders/inbound devuelve 404/422 (asset inexistente, cantidad inválida u otra validación de AssetEntryCreate).",
+      "hypothesis": "Necesitamos saber si el personal referencia productos inexistentes o cantidades inválidas al registrar entradas.",
+      "decision": "Si esto es frecuente en una oficina, el formulario necesita mejor autocompletado/validación en cliente.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "office": { "type": "string", "enum_ref": "office", "required": false },
+        "product_id": { "type": "integer", "required": false, "description": "null si el id referenciado no existe." },
+        "rejection_reason": { "type": "string", "enum": ["asset_not_found", "invalid_quantity", "validation_error"], "required": true }
+      },
+      "allowlist": ["office", "product_id", "rejection_reason"]
+    },
+
+    "outbound_order_rejected": {
+      "category": "negocio-inventario",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite cuando POST /inventory/orders/outbound devuelve 400/404 — en particular el caso 'quantity > available' ya implementado en routers/inventory.py.",
+      "hypothesis": "Necesitamos saber cuándo se intenta entregar más material del disponible — señal de demanda insatisfecha en tiempo real.",
+      "decision": "Expeditar reposición o redirigir el pedido a la otra oficina antes de perder la entrega (Elena, Patricia).",
+      "delivery": "stream",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "office": { "type": "string", "enum_ref": "office", "required": true },
+        "product_id": { "type": "integer", "required": true },
+        "product_category": { "type": "string", "enum_ref": "product_category", "required": false },
+        "programme_id": { "type": "string", "required": false },
+        "requested_quantity": { "type": "integer", "required": true },
+        "available_quantity": { "type": "integer", "required": false, "description": "Solo aplica a rejection_reason=insufficient_stock." },
+        "rejection_reason": { "type": "string", "enum": ["insufficient_stock", "asset_not_found", "validation_error"], "required": true }
+      },
+      "allowlist": ["office", "product_id", "product_category", "programme_id", "requested_quantity", "available_quantity", "rejection_reason"]
+    },
+
+    "supplier_created": {
+      "category": "negocio-proveedores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite al confirmar POST /suppliers.",
+      "hypothesis": "Necesitamos saber con qué frecuencia se incorporan proveedores nuevos y en qué categoría/país.",
+      "decision": "Detectar dependencia excesiva de pocos proveedores por categoría, para diversificar antes de que uno solo concentre riesgo.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "No incluye el nombre del proveedor (razón social) por defecto en el allowlist mínimo — se considera dato de negocio no sensible, pero se omite aquí porque no aporta nada que 'supplier_id' no dé ya para la hipótesis planteada; puede añadirse en una v1.1 del schema si se necesita.",
+      "properties": {
+        "supplier_id": { "type": "string", "required": true, "description": "doc_id de TinyDB." },
+        "country": { "type": "string", "enum_ref": "supplier_country", "required": true },
+        "categories": { "type": "array", "items": "string", "required": true, "description": "Subconjunto de VALID_CATEGORIES (models.py)." },
+        "currency": { "type": "string", "enum_ref": "currency", "required": true }
+      },
+      "allowlist": ["supplier_id", "country", "categories", "currency"]
+    },
+
+    "supplier_rate_updated": {
+      "category": "negocio-proveedores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite al confirmar PATCH de tarifa en /suppliers/{id} (update_supplier_rate).",
+      "hypothesis": "Necesitamos saber la frecuencia y magnitud de cambios de tarifa por proveedor.",
+      "decision": "Alimentar el mismo tipo de vigilancia de variación de costo que kit_cost_variance_detected, pero a nivel de contrato.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "supplier_id": { "type": "string", "required": true },
+        "country": { "type": "string", "enum_ref": "supplier_country", "required": true },
+        "currency": { "type": "string", "enum_ref": "currency", "required": true },
+        "previous_rate": { "type": "number", "required": true },
+        "new_rate": { "type": "number", "required": true },
+        "variance_pct": { "type": "number", "required": true }
+      },
+      "allowlist": ["supplier_id", "country", "currency", "previous_rate", "new_rate", "variance_pct"]
+    },
+
+    "supplier_status_updated": {
+      "category": "negocio-proveedores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite al confirmar PATCH de estado en /suppliers/{id} (update_supplier_status).",
+      "hypothesis": "Necesitamos saber cuántos proveedores se suspenden y con qué frecuencia.",
+      "decision": "Disparar automáticamente una revisión de los productos que dependen de ese proveedor antes de que bloquee una entrada futura.",
+      "delivery": "stream",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "supplier_id": { "type": "string", "required": true },
+        "country": { "type": "string", "enum_ref": "supplier_country", "required": true },
+        "previous_status": { "type": "string", "enum": ["active", "suspended"], "required": true },
+        "new_status": { "type": "string", "enum": ["active", "suspended"], "required": true }
+      },
+      "allowlist": ["supplier_id", "country", "previous_status", "new_status"]
+    },
+
+    "supplier_deleted": {
+      "category": "negocio-proveedores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite al confirmar DELETE /suppliers/{id}.",
+      "hypothesis": "Necesitamos saber cuándo se elimina un proveedor del catálogo (acción irreversible).",
+      "decision": "Rastro de auditoría para poder reconstruir por qué un proveedor dejó de estar disponible, dato relevante para negociación futura.",
+      "delivery": "stream",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "supplier_id": { "type": "string", "required": true },
+        "country": { "type": "string", "enum_ref": "supplier_country", "required": true }
+      },
+      "allowlist": ["supplier_id", "country"]
+    },
+
+    "login_succeeded": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite tras POST /auth/login exitoso.",
+      "hypothesis": "Necesitamos saber patrones de uso (horarios, oficina, frecuencia) del backoffice.",
+      "decision": "Dimensionar capacidad, detectar oficinas con baja adopción de la herramienta (Patricia, Roberto).",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "No incluye email ni nombre — userId en el envelope ya correlaciona con el usuario.",
+      "properties": {
+        "role": { "type": "string", "enum_ref": "role", "required": true }
+      },
+      "allowlist": ["role"]
+    },
+
+    "login_failed": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite tras POST /auth/login fallido (credenciales inválidas o usuario inactivo).",
+      "hypothesis": "Necesitamos saber la frecuencia y patrón de credenciales incorrectas — señal de fuerza bruta o de cuentas mal onboardeadas.",
+      "decision": "Alertar seguridad ante ráfagas desde la misma sesión; si domina 'inactive_user', revisar el proceso de onboarding de cuentas.",
+      "delivery": "stream",
+      "throttle": "ninguno — deliberado, ver telemetry-plan.md §3.3",
+      "contains_pii": true,
+      "sanitization": "No se incluye el email en claro. 'email_hash' es un HMAC-SHA256 truncado con clave rotable server-side (nunca reversible al email). userId es null porque, en credenciales inválidas, no se resuelve identidad.",
+      "properties": {
+        "failure_reason": { "type": "string", "enum": ["invalid_credentials", "inactive_user"], "required": true },
+        "email_hash": { "type": "string", "required": false, "description": "HMAC-SHA256 truncado del email intentado, para poder correlacionar intentos repetidos contra la misma cuenta sin guardar el email." }
+      },
+      "allowlist": ["failure_reason", "email_hash"]
+    },
+
+    "session_expired": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite cuando RequireAuth detecta ausencia/expiración de token y redirige a /login, o cuando una llamada a la API devuelve 401 sobre una sesión que antes era válida.",
+      "hypothesis": "Necesitamos saber cuántas sesiones expiran mientras el usuario sigue intentando trabajar.",
+      "decision": "Si es alto, subir ACCESS_TOKEN_EXPIRE_MINUTES o añadir un refresh silencioso.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "last_active_seconds_ago": { "type": "integer", "required": false }
+      },
+      "allowlist": ["last_active_seconds_ago"]
+    },
+
+    "password_reset_requested": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite SOLO en la rama de POST /auth/forgot-password donde el usuario existe y está activo (la misma rama donde hoy se envía el email). La rama de email no encontrado/inactivo no emite este evento individual — ver telemetry-plan.md §3.1.",
+      "hypothesis": "Necesitamos saber el volumen de recuperación de contraseña.",
+      "decision": "Detectar si un flujo de onboarding concreto genera fricción sistemática (muchos resets poco después del alta).",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "No se emite evento distinguible para emails inexistentes/inactivos, para no recrear a nivel de telemetría el canal de enumeración de cuentas que la API ya evita en su respuesta HTTP.",
+      "properties": {},
+      "allowlist": []
+    },
+
+    "password_reset_completed": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite tras POST /auth/reset-password exitoso (token consumido correctamente).",
+      "hypothesis": "Necesitamos saber la tasa de conversión del flujo de reset (solicitado → completado).",
+      "decision": "Si la conversión es baja, el email o el formulario de reset tienen fricción que corregir.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {},
+      "allowlist": []
+    },
+
+    "password_changed": {
+      "category": "autenticación",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite tras POST /auth/change-password exitoso (usuario ya autenticado cambiando su propia contraseña).",
+      "hypothesis": "Igual que password_reset_completed pero para el cambio voluntario desde la cuenta ya autenticada.",
+      "decision": "Distinguir cambio voluntario de recuperación forzada ayuda a separar higiene de seguridad normal de incidentes de acceso.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {},
+      "allowlist": []
+    },
+
+    "api_request_completed": {
+      "category": "rendimiento",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite por request, apoyándose en el timing_middleware ya presente en services/api/app/main.py.",
+      "hypothesis": "Necesitamos la latencia real por ruta en producción.",
+      "decision": "Confirmar que la caché de CACHING_REPORT.md sigue rindiendo y detectar regresiones antes de que el usuario se queje.",
+      "delivery": "stream",
+      "throttle": "muestreo 10% para respuestas 2xx/3xx en producción; el 100% de las no-2xx/3xx se cubre vía api_request_failed, no aquí — ver telemetry-plan.md §3.3",
+      "contains_pii": false,
+      "sanitization": "route es la plantilla de ruta (ej. '/inventory/products/{id}'), nunca la URL con el id real, para no explotar la cardinalidad de la métrica.",
+      "properties": {
+        "method": { "type": "string", "enum": ["GET", "POST", "PATCH", "DELETE"], "required": true },
+        "route": { "type": "string", "required": true, "description": "Plantilla de ruta, no la URL literal." },
+        "status_code": { "type": "integer", "required": true },
+        "duration_ms": { "type": "number", "required": true },
+        "cache_hit": { "type": "boolean", "required": false, "description": "true si la respuesta vino de cache.get_or_set() sin recomputar." }
+      },
+      "allowlist": ["method", "route", "status_code", "duration_ms", "cache_hit"]
+    },
+
+    "frontend_page_load_recorded": {
+      "category": "rendimiento",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite una vez por carga completa de página (no por re-render), usando Web Vitals del navegador.",
+      "hypothesis": "Necesitamos el LCP real por ruta y tipo de dispositivo en producción.",
+      "decision": "Verificar si el next/dynamic aplicado (CACHING_REPORT.md) bajó el LCP móvil de 2.9s por debajo del umbral de 2.5s (REPORT.md), y detectar regresiones futuras.",
+      "delivery": "batch",
+      "throttle": "1 evento por carga completa de página",
+      "contains_pii": false,
+      "sanitization": "route sin querystring.",
+      "properties": {
+        "route": { "type": "string", "required": true },
+        "lcp_ms": { "type": "number", "required": true },
+        "ttfb_ms": { "type": "number", "required": false },
+        "device_type": { "type": "string", "enum": ["mobile", "desktop"], "required": false }
+      },
+      "allowlist": ["route", "lcp_ms", "ttfb_ms", "device_type"]
+    },
+
+    "api_request_failed": {
+      "category": "errores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite en cualquier respuesta 5xx, o una excepción no controlada capturada por el timing_middleware/exception handler.",
+      "hypothesis": "Necesitamos saber qué rutas fallan con error de servidor o excepción no controlada.",
+      "decision": "Priorizar qué endpoint estabilizar primero.",
+      "delivery": "stream",
+      "throttle": "ninguno — 100% de captura",
+      "contains_pii": false,
+      "sanitization": "error_type es el nombre de la clase de excepción, nunca el mensaje completo (que podría incluir datos de la petición).",
+      "properties": {
+        "method": { "type": "string", "required": true },
+        "route": { "type": "string", "required": true, "description": "Plantilla de ruta." },
+        "status_code": { "type": "integer", "required": true },
+        "error_type": { "type": "string", "required": true, "description": "Nombre de la clase de excepción (ej. 'IntegrityError')." }
+      },
+      "allowlist": ["method", "route", "status_code", "error_type"]
+    },
+
+    "frontend_error_captured": {
+      "category": "errores",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite desde un error boundary de React o un listener global de 'error'/'unhandledrejection'.",
+      "hypothesis": "Necesitamos saber qué errores de JS no capturados ocurren y en qué ruta.",
+      "decision": "Priorizar qué pantalla del backoffice es más frágil hoy.",
+      "delivery": "stream",
+      "throttle": "debounce por (error_fingerprint, sessionId): máx. 1 evento cada 60s; repeticiones agregadas en occurrence_count — ver telemetry-plan.md §3.3",
+      "contains_pii": true,
+      "sanitization": "route se despoja de querystring/fragment antes de emitir. error_message se trunca a 300 caracteres y nunca incluye el header Authorization ni tokens. El stack se recorta a frames de código propio (se excluyen frames de node_modules).",
+      "properties": {
+        "route": { "type": "string", "required": true },
+        "error_fingerprint": { "type": "string", "required": true, "description": "Hash de mensaje + primer frame propio del stack, usado para dedupe." },
+        "error_message": { "type": "string", "required": true, "description": "Truncado a 300 caracteres, sin querystring/tokens." },
+        "severity": { "type": "string", "enum": ["fatal", "recoverable"], "required": true },
+        "occurrence_count": { "type": "integer", "required": false, "description": "Repeticiones del mismo fingerprint agregadas en la ventana de debounce." }
+      },
+      "allowlist": ["route", "error_fingerprint", "error_message", "severity", "occurrence_count"]
+    },
+
+    "csv_analysis_rejected": {
+      "category": "errores",
+      "classification": "identificado",
+      "source": "backend",
+      "description": "Se emite en cualquier rama de error de POST /api/incidents/analyze (fichero vacío, formato no soportado, encoding inválido, tamaño excedido, CSV mal formado).",
+      "hypothesis": "Necesitamos saber con qué frecuencia y por qué motivo falla la subida de CSV de incidencias.",
+      "decision": "Si un motivo domina (ej. encoding), mejorar el mensaje de error o aceptar más formatos.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "Nunca se incluye el nombre real del fichero (puede contener el nombre de un cliente/candidato) ni su contenido — solo tamaño y motivo.",
+      "properties": {
+        "rejection_reason": { "type": "string", "enum": ["empty_file", "unsupported_format", "invalid_encoding", "file_too_large", "invalid_csv_structure", "missing_header"], "required": true },
+        "file_size_bytes": { "type": "integer", "required": false }
+      },
+      "allowlist": ["rejection_reason", "file_size_bytes"]
+    },
+
+    "backoffice_section_viewed": {
+      "category": "navegación",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite al montar una sección protegida por RequireAuth/AppShell.",
+      "hypothesis": "Necesitamos saber qué secciones visitan más los operadores.",
+      "decision": "Priorizar qué parte del backoffice pulir/optimizar primero.",
+      "delivery": "batch",
+      "throttle": "cola en cliente, vaciada cada 15s o cada 20 eventos — ver telemetry-plan.md §3.3",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "section": { "type": "string", "enum": ["dashboard", "inventory_products", "inventory_orders", "inventory_inbound", "inventory_outbound", "incidents", "suppliers", "account_profile", "account_change_password"], "required": true }
+      },
+      "allowlist": ["section"]
+    },
+
+    "inventory_order_form_abandoned": {
+      "category": "navegación",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite al detectar salida de InboundOrderForm/OutboundOrderForm (cambio de ruta o beforeunload) sin submit exitoso previo.",
+      "hypothesis": "Necesitamos saber si el formulario de entrada/salida se abandona a medio llenar.",
+      "decision": "Si la tasa de abandono es alta en un formulario específico, priorizar su rediseño (menos campos, mejores defaults) antes que otras mejoras de UX.",
+      "delivery": "batch",
+      "throttle": "1 evento por intento de formulario — ver telemetry-plan.md §3.3",
+      "contains_pii": false,
+      "sanitization": "n/a",
+      "properties": {
+        "form": { "type": "string", "enum": ["inbound", "outbound"], "required": true },
+        "fields_filled_count": { "type": "integer", "required": true },
+        "time_on_form_ms": { "type": "integer", "required": true }
+      },
+      "allowlist": ["form", "fields_filled_count", "time_on_form_ms"]
+    },
+
+    "csv_results_exported": {
+      "category": "navegación",
+      "classification": "identificado",
+      "source": "frontend",
+      "description": "Se emite al pulsar ExportButton tras un GET /api/incidents/results/export exitoso.",
+      "hypothesis": "Necesitamos saber si el análisis de incidencias se genera pero no se exporta.",
+      "decision": "Si el export se usa poco pese a analizarse mucho, evaluar si el formato de exportación no es el que el equipo realmente necesita.",
+      "delivery": "batch",
+      "throttle": "ninguno",
+      "contains_pii": false,
+      "sanitization": "n/a — se correlaciona con el análisis previo vía sessionId/requestId, no hace falta repetir datos del análisis aquí.",
+      "properties": {},
+      "allowlist": []
+    }
+  }
+}
