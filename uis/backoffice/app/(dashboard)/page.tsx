@@ -3,6 +3,7 @@ import {
   averageTicketResolutionTime,
   countCandidatesByStatus,
 } from "@hito2-logic/utils/transformations";
+import SectionViewTracker from "@/components/SectionViewTracker";
 
 export default function Home() {
   const mockCandidates: Candidate[] = [
@@ -90,6 +91,7 @@ export default function Home() {
 
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <SectionViewTracker section="dashboard" />
       <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_12px_40px_-30px_rgba(14,165,233,0.45)] backdrop-blur-xl">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Overview</p>

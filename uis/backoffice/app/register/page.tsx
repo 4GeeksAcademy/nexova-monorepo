@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { AuthApiError, me, register } from "@/lib/auth-api";
 import { useAuth } from "@/lib/AuthContext";
+import { startTelemetrySession } from "@/lib/telemetry";
 
 const initialForm = {
   email: "",
@@ -42,6 +43,7 @@ export default function RegisterPage() {
         address: form.address || undefined,
       });
       const user = await me();
+      startTelemetrySession();
       setUser(user);
       router.push("/");
     } catch (registerError) {

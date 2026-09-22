@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { me, updateProfile, type MeRead } from "@/lib/auth-api";
+import { useSectionView } from "@/lib/useSectionView";
 
 export default function AccountProfilePage() {
+  useSectionView("account_profile");
   const [account, setAccount] = useState<MeRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");

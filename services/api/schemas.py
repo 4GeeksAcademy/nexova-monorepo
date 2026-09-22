@@ -27,6 +27,8 @@ class AssetCreate(BaseModel):
     sku: str = Field(min_length=1)
     category: str
     office: str
+    min_stock_threshold: int = Field(default=5, gt=0)
+    programme_id: str | None = None
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -38,6 +40,8 @@ class AssetRead(BaseModel):
     category: str
     office: str
     current_stock: int
+    min_stock_threshold: int
+    programme_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -47,6 +51,7 @@ class AssetEntryCreate(BaseModel):
     quantity: int = Field(gt=0)
     supplier: str = Field(min_length=1)
     office: str
+    unit_cost: float | None = Field(default=None, gt=0)
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -59,6 +64,7 @@ class AssetEntryRead(BaseModel):
     office: str
     created_at: datetime
     user_uuid: str
+    unit_cost: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

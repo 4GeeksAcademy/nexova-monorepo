@@ -5,6 +5,7 @@ import { useState } from "react";
 import FileUploader from "@/components/incidents/FileUploader";
 import { analyzeIncidentsFile, ApiError } from "@/lib/api";
 import type { AnalysisSummary } from "@/lib/types";
+import { useSectionView } from "@/lib/useSectionView";
 
 // Solo se renderizan tras analizar un CSV subido por el usuario — nunca en
 // la carga inicial de la ruta. Se difiere su JS con next/dynamic para no
@@ -17,6 +18,7 @@ const StatusBreakdown = dynamic(() => import("@/components/incidents/StatusBreak
 const ExportButton = dynamic(() => import("@/components/incidents/ExportButton"));
 
 export default function IncidentsPage() {
+  useSectionView("incidents");
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);

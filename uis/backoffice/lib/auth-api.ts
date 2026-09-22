@@ -1,4 +1,5 @@
-import { clearToken, getToken, setToken } from "./auth-storage";
+import { getToken, setToken } from "./auth-storage";
+import { handleSessionExpired } from "./session";
 
 export type Role = "admin" | "manager" | "user";
 
@@ -103,10 +104,7 @@ async function protectedAuthRequest<T>(path: string, options?: RequestInit): Pro
   });
 
   if (res.status === 401) {
-    clearToken();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+    handleSessionExpired();
     throw new AuthApiError(401, "Sesion expirada.");
   }
 

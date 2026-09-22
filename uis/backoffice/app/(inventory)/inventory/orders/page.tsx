@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ApiError, listOrders } from "@/lib/inventory";
 import type { Order } from "@/lib/inventory-types";
+import { useSectionView } from "@/lib/useSectionView";
 
 // Solo se necesita una vez resuelto el fetch (ver el guard `isLoading` más
 // abajo); diferir su JS con next/dynamic reduce lo que hace falta para el
@@ -11,6 +12,7 @@ import type { Order } from "@/lib/inventory-types";
 const OrdersHistoryTable = dynamic(() => import("@/components/inventory/OrdersHistoryTable"));
 
 export default function OrdersHistoryPage() {
+  useSectionView("inventory_orders");
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
