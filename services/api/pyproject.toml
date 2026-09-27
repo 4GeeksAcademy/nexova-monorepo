@@ -26,4 +26,4 @@ seed = "seed:main"
 seed-inventory = "seed_inventory:main"
 
 [tool.setuptools]
-py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets"]
+py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets", "telemetry_store"]

@@ -1,6 +1,6 @@
 # Plan de Telemetría — Nexova
 
-**Estado:** Diseño para revisión (viernes). Ningún endpoint ni librería de telemetría está implementado todavía — este documento y `event-schemas.json` son el contrato que el equipo instrumentará después.
+**Estado:** Diseño aprobado, captura implementada (`uis/backoffice/lib/telemetry.ts` + `log_telemetry_event` en `services/api`) y almacenamiento en Supabase implementado (`telemetry_events`, ver §4). Este documento y `event-schemas.json` siguen siendo el contrato: el backend lee los allowlists directamente del JSON.
 
 **Alcance de esta primera entrega:** `services/api` (FastAPI + Supabase/SQLModel + TinyDB) y `uis/backoffice` (Next.js). No cubre `packages/incidents-analyzer` como librería en sí, solo su uso desde el router `app/api/incidents`.
 
@@ -182,3 +182,58 @@ Ningún otro evento del catálogo tiene volumen suficiente para justificar throt
 4. `supplier` en `AssetEntry` es hoy texto libre (ej. `"TechDistrib Valencia S.L."`), no una referencia al catálogo de `/suppliers`. Se recomienda normalizar a `supplier_id` cuando el proveedor de una entrada de inventario coincide con uno del catálogo, y mantener `supplier_name` como campo de reserva cuando no.
 
 Estos cuatro puntos no bloquean la aprobación del plan — son exactamente el tipo de brecha entre "lo que el negocio pide medir" y "lo que el modelo de datos actual permite medir" que este documento existe para exponer antes de que alguien empiece a escribir instrumentación a ciegas.
+
+---
+
+## 4. Almacenamiento (`telemetry_events`)
+
+Los eventos se persisten en Supabase en la tabla `telemetry_events`, creada por [`services/api/migrations/002_telemetry_events.sql`](../../services/api/migrations/002_telemetry_events.sql) (no por `SQLModel.create_all`, que no puede expresar el trigger ni la RLS). Llegan por dos caminos que comparten el mismo mapeo (`services/api/telemetry_store.py`):
+
+- **Frontend** → `POST /telemetry/events` (lotes del `TelemetryService`). Un único bulk insert por lote.
+- **Backend** → `log_telemetry_event()` (eventos de negocio, auth y rendimiento emitidos por la propia API). Insert de 1 fila; si falla, se registra un warning y la petición de negocio sigue su curso.
+
+### 4.1 Esquema
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | `uuid` PK, `gen_random_uuid()` | Identificador del registro (distinto de `eventId`). |
+| `timestamp` | `timestamptz` NOT NULL | Momento de ocurrencia (`envelope.timestamp`), no de ingesta. |
+| `service` | `text` NOT NULL | `backoffice` o `api`. |
+| `event_type` | `text` NOT NULL | Taxonomía `entidad_acción` de §2. |
+| `level` | `text` NOT NULL, default `info` | `info` / `warn` / `error` (CHECK). |
+| `value` | `numeric` | Métrica principal del evento, si tiene una. |
+| `message` | `text` | Descripción legible del tipo de evento. |
+| `tags` | `jsonb` NOT NULL, default `{}` | `properties` filtradas por allowlist + `_envelope`. |
+
+Índices: B-tree en `timestamp` y en `event_type`, GIN en `tags`, y único sobre `tags->'_envelope'->>'eventId'` (idempotencia, ver §4.4).
+
+### 4.2 Mapeo envelope → fila
+
+| Columna | Origen |
+|---|---|
+| `timestamp` | `event.timestamp` (ISO 8601 con zona horaria obligatoria). |
+| `service` | Derivado de `event.source`: `frontend` → `backoffice`, `backend` → `api`. |
+| `event_type` | `event.event_type`. |
+| `level` | `error`: `api_request_failed`, `frontend_error_captured`. `warn`: todo `*_rejected`, `login_failed`, `stock_threshold_triggered`, `kit_cost_variance_detected`. `info`: el resto. |
+| `value` | Una propiedad numérica por tipo: `quantity` (`inbound/outbound_order_created`, `stock_threshold_triggered`), `requested_quantity` (`outbound_order_rejected`), `variance_pct` (`kit_cost_variance_detected`, `supplier_rate_updated`), `duration_ms` (`api_request_completed`), `lcp_ms` (`frontend_page_load_recorded`), `occurrence_count` (`frontend_error_captured`), `file_size_bytes` (`csv_analysis_rejected`), `time_on_form_ms` (`inventory_order_form_abandoned`), `last_active_seconds_ago` (`session_expired`). `NULL` en el resto o si el valor no es numérico. |
+| `message` | `description` del evento en `event-schemas.json`. Texto fijo por tipo: **nunca** se construye con valores de `properties`, así no puede arrastrar PII. |
+| `tags` | `event.properties` filtrado por el allowlist del evento en `event-schemas.json` (claves fuera del allowlist se descartan, el evento no se rechaza), más `_envelope`: `{eventId, sessionId, userId, requestId, schemaVersion}`. |
+
+Las dimensiones del CONTEXT (`office`, `programme_id`, `product_category`, `currency`, …) se conservan tal cual dentro de `tags`, en la moneda nativa de la oficina (sin conversión, §3.4). `_envelope` va en una clave aparte para no mezclarse con las propiedades de negocio; `userId` es el UUID interno, nunca email ni nombre.
+
+### 4.3 Validación y rechazo
+
+El body se acepta de forma laxa (`{"events": [...]}`) y cada evento se valida por separado con `TelemetryEvent.model_validate` — el mismo modelo de la captura, sin cambios. Un evento se rechaza (cuenta en `rejected`, el resto del lote se guarda igual) si:
+
+- no cumple `TelemetryEvent` (campo obligatorio ausente, tipo incorrecto, `event_type` mal formado, `source` desconocido);
+- su `event_type` no está en el catálogo de `event-schemas.json`;
+- su `timestamp` no es ISO 8601 o no tiene zona horaria;
+- sus `properties` permitidas no son serializables a JSON.
+
+Respuestas: `200 {received, stored, rejected}` si el envelope es parseable; `422` solo si falta el array `events`; `503` si falla la base de datos (el `TelemetryService` reintenta el lote, solo mira `res.ok`). `POST /telemetry/events` está excluido de `api_request_*` para no generar una fila por cada lote guardado.
+
+### 4.4 Inmutabilidad e idempotencia
+
+- **Append-only:** triggers `BEFORE UPDATE OR DELETE` (por fila) y `BEFORE TRUNCATE` lanzan una excepción. La API no tiene ninguna ruta que actualice o borre eventos.
+- **Idempotencia:** el `TelemetryService` reintenta con backoff; si un insert se completó pero la respuesta se perdió, el reintento no duplica filas (`ON CONFLICT DO NOTHING` sobre el `eventId`). Un duplicado ignorado cuenta como `stored`: el evento está guardado.
+- **Acceso:** RLS activada sin políticas — PostgREST no expone la tabla a `anon`/`authenticated`; la API escribe como propietaria vía `DATABASE_URL`.
