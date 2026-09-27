@@ -1,4 +1,5 @@
-import { clearToken, getToken } from "./auth-storage";
+import { getToken } from "./auth-storage";
+import { handleSessionExpired } from "./session";
 import type {
   Asset,
   AssetCreatePayload,
@@ -18,10 +19,7 @@ function authHeaders(): HeadersInit {
 
 function handleUnauthorized(res: Response): void {
   if (res.status === 401) {
-    clearToken();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+    handleSessionExpired();
   }
 }
 

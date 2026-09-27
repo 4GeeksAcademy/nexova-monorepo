@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, createOutboundOrder, getProduct } from "@/lib/inventory";
 import { OFFICES, type Asset, type ExitType, type Office } from "@/lib/inventory-types";
+import { flushOnHide, track } from "@/lib/telemetry";
 
 export default function OutboundOrderForm({
   products,
@@ -26,6 +27,52 @@ export default function OutboundOrderForm({
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // inventory_order_form_abandoned: se dispara una sola vez por intento de
+  // formulario, al desmontar o cerrar/recargar la página, si no hubo un
+  // submit exitoso previo.
+  const formStateRef = useRef({ assetId, quantity, exitType, assignedTo, office });
+  useEffect(() => {
+    formStateRef.current = { assetId, quantity, exitType, assignedTo, office };
+  }, [assetId, quantity, exitType, assignedTo, office]);
+
+  const submittedRef = useRef(false);
+  const abandonReportedRef = useRef(false);
+  const mountedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+
+    const reportAbandonIfNeeded = () => {
+      if (submittedRef.current || abandonReportedRef.current) {
+        return;
+      }
+      abandonReportedRef.current = true;
+      const values = formStateRef.current;
+      const fieldsFilledCount = [
+        values.assetId,
+        values.quantity,
+        values.exitType,
+        values.assignedTo,
+        values.office,
+      ].filter(Boolean).length;
+      track("inventory_order_form_abandoned", {
+        form: "outbound",
+        fields_filled_count: fieldsFilledCount,
+        time_on_form_ms: Date.now() - (mountedAtRef.current ?? Date.now()),
+      });
+      // Un cierre/navegación inmediata puede destruir la página antes de que
+      // el navegador dispare `visibilitychange` — forzamos el envío ya
+      // (mismo fix aplicado a session_expired en lib/session.ts).
+      flushOnHide();
+    };
+
+    window.addEventListener("beforeunload", reportAbandonIfNeeded);
+    return () => {
+      window.removeEventListener("beforeunload", reportAbandonIfNeeded);
+      reportAbandonIfNeeded();
+    };
+  }, []);
 
   // Stock reactivo: se re-consulta el activo cada vez que cambia la selección,
   // así el valor mostrado nunca queda obsoleto respecto a órdenes recientes.
@@ -99,6 +146,7 @@ export default function OutboundOrderForm({
         assigned_to: exitType === "allocation" ? assignedTo.trim() : null,
         office,
       });
+      submittedRef.current = true;
       setSuccess(true);
       resetForm();
       // La propia respuesta ya trae el stock resultante: no hace falta

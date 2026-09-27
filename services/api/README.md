@@ -29,6 +29,7 @@ Variables de entorno (`services/api/.env`, ver `.env.example`):
 - `RESEND_FROM_EMAIL` — remitente del email de recuperación (por defecto `onboarding@resend.dev`).
 - `FRONTEND_URL` — base usada para construir el link `/reset-password?token=...` del email.
 - `RESEND_API_KEY` — API key de [Resend](https://resend.com/api-keys). Nunca hardcodeada, nunca commiteada.
+- `TELEMETRY_ENDPOINT` — endpoint de ingesta de telemetría (por defecto `http://localhost:8000/telemetry/events`, el propio stub). Se lee desde ya aunque todavía no se usa para redirigir tráfico.
 
 Rutas protegidas fuera de `/users`/`/auth`/`/profiles` (requieren
 `Authorization: Bearer <token>`): `POST /suppliers`,
@@ -86,6 +87,12 @@ interactiva automática en `http://localhost:8000/docs`.
 | Codificación no UTF-8              | 400         |
 | CSV sin cabecera / sin filas       | 400         |
 | Export sin análisis previo         | 404         |
+
+## Dominio: `telemetry`
+
+| Método | Ruta                | Descripción                                                                 | Protegida |
+| ------ | ------------------- | ---------------------------------------------------------------------------- | --------- |
+| `POST` | `/telemetry/events` | Recibe `{ "events": [...] }`, loguea la cuenta y `event_type` de cada uno, y responde `{ "received": N }`. **Sin autenticación** (algunos eventos, ej. `login_failed`, ocurren antes de tener sesión) y **sin persistencia** — es un stub de verificación, ver `docs/telemetry/telemetry-plan.md`. | No |
 
 ## Privacidad
 

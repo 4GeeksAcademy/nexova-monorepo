@@ -5,8 +5,10 @@ import { Suspense, useEffect, useState } from "react";
 import InboundOrderForm from "@/components/inventory/InboundOrderForm";
 import { ApiError, listProducts } from "@/lib/inventory";
 import type { Asset } from "@/lib/inventory-types";
+import { useSectionView } from "@/lib/useSectionView";
 
 function InboundOrderPageContent() {
+  useSectionView("inventory_inbound");
   const searchParams = useSearchParams();
   const assetIdParam = searchParams.get("asset_id");
 

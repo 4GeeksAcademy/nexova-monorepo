@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { changePassword } from "@/lib/auth-api";
+import { useSectionView } from "@/lib/useSectionView";
 
 export default function ChangePasswordPage() {
+  useSectionView("account_change_password");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

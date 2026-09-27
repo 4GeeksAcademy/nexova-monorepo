@@ -249,6 +249,8 @@ class Asset(SQLModel, table=True):
     sku: str = SQLField(unique=True, index=True)
     category: str
     office: str
+    min_stock_threshold: int = SQLField(default=5)
+    programme_id: str | None = SQLField(default=None)
 
 
 class AssetEntry(SQLModel, table=True):
@@ -259,6 +261,7 @@ class AssetEntry(SQLModel, table=True):
     office: str
     created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
     user_uuid: str
+    unit_cost: float | None = SQLField(default=None)
 
 
 class AssetExit(SQLModel, table=True):

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, createInboundOrder } from "@/lib/inventory";
 import { OFFICES, type Asset, type Office } from "@/lib/inventory-types";
+import { flushOnHide, track } from "@/lib/telemetry";
 
 export default function InboundOrderForm({
   products,
@@ -20,6 +21,48 @@ export default function InboundOrderForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // inventory_order_form_abandoned: se dispara una sola vez por intento de
+  // formulario, al desmontar o cerrar/recargar la página, si no hubo un
+  // submit exitoso previo.
+  const formStateRef = useRef({ assetId, quantity, supplier, office });
+  useEffect(() => {
+    formStateRef.current = { assetId, quantity, supplier, office };
+  }, [assetId, quantity, supplier, office]);
+
+  const submittedRef = useRef(false);
+  const abandonReportedRef = useRef(false);
+  const mountedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+
+    const reportAbandonIfNeeded = () => {
+      if (submittedRef.current || abandonReportedRef.current) {
+        return;
+      }
+      abandonReportedRef.current = true;
+      const values = formStateRef.current;
+      const fieldsFilledCount = [values.assetId, values.quantity, values.supplier, values.office].filter(
+        Boolean
+      ).length;
+      track("inventory_order_form_abandoned", {
+        form: "inbound",
+        fields_filled_count: fieldsFilledCount,
+        time_on_form_ms: Date.now() - (mountedAtRef.current ?? Date.now()),
+      });
+      // Un cierre/navegación inmediata puede destruir la página antes de que
+      // el navegador dispare `visibilitychange` — forzamos el envío ya
+      // (mismo fix aplicado a session_expired en lib/session.ts).
+      flushOnHide();
+    };
+
+    window.addEventListener("beforeunload", reportAbandonIfNeeded);
+    return () => {
+      window.removeEventListener("beforeunload", reportAbandonIfNeeded);
+      reportAbandonIfNeeded();
+    };
+  }, []);
 
   const resetForm = () => {
     setQuantity("");
@@ -53,6 +96,7 @@ export default function InboundOrderForm({
         supplier: supplier.trim(),
         office,
       });
+      submittedRef.current = true;
       setSuccess(true);
       resetForm();
     } catch (err) {

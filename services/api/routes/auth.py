@@ -27,6 +27,7 @@ from models import (
 )
 from password_resets import consume_reset_token, create_reset_token
 from routes.profiles import get_profile_by_user_id
+from routes.telemetry import log_telemetry_event
 from routes.users import get_user_by_email, set_user_password
 from security import create_access_token, get_current_user, verify_password
 
@@ -40,18 +41,42 @@ GENERIC_FORGOT_PASSWORD_MESSAGE = "Si esa dirección está registrada, recibirá
 def login(payload: LoginRequest) -> Token:
     user = get_user_by_email(payload.email)
     if user is None or not verify_password(payload.password, user.hashed_password):
+        log_telemetry_event(
+            "login_failed",
+            source="backend",
+            session_id=None,
+            user_id=None,
+            request_id=None,
+            properties={"failure_reason": "invalid_credentials"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos.",
         )
 
     if not user.is_active:
+        log_telemetry_event(
+            "login_failed",
+            source="backend",
+            session_id=None,
+            user_id=None,
+            request_id=None,
+            properties={"failure_reason": "inactive_user"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario inactivo.",
         )
 
     access_token = create_access_token(user_id=user.id)
+    log_telemetry_event(
+        "login_succeeded",
+        source="backend",
+        session_id=None,
+        user_id=user.id,
+        request_id=None,
+        properties={"role": user.role.value},
+    )
     return Token(access_token=access_token)
 
 
@@ -77,6 +102,18 @@ def forgot_password(payload: ForgotPasswordRequest) -> MessageResponse:
             # ni tumbar la petición: se registra y se responde igual que siempre.
             logger.exception("Fallo al enviar el email de reset a %s", user.id)
 
+        # Solo en esta rama (usuario existe y activo) — nunca en la rama de
+        # abajo, para no recrear a nivel de telemetría el canal de
+        # enumeración de cuentas que la respuesta HTTP ya evita.
+        log_telemetry_event(
+            "password_reset_requested",
+            source="backend",
+            session_id=None,
+            user_id=user.id,
+            request_id=None,
+            properties={},
+        )
+
     return MessageResponse(detail=GENERIC_FORGOT_PASSWORD_MESSAGE)
 
 
@@ -90,6 +127,14 @@ def reset_password(payload: ResetPasswordRequest) -> MessageResponse:
         )
 
     set_user_password(user_id, payload.new_password)
+    log_telemetry_event(
+        "password_reset_completed",
+        source="backend",
+        session_id=None,
+        user_id=user_id,
+        request_id=None,
+        properties={},
+    )
     return MessageResponse(detail="Contraseña actualizada correctamente.")
 
 
@@ -105,4 +150,12 @@ def change_password(
         )
 
     set_user_password(current_user.id, payload.new_password)
+    log_telemetry_event(
+        "password_changed",
+        source="backend",
+        session_id=None,
+        user_id=current_user.id,
+        request_id=None,
+        properties={},
+    )
     return MessageResponse(detail="Contraseña actualizada correctamente.")

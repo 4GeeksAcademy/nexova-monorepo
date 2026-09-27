@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { login, me } from "@/lib/auth-api";
 import { useAuth } from "@/lib/AuthContext";
+import { startTelemetrySession } from "@/lib/telemetry";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       const user = await me();
+      startTelemetrySession();
       setUser(user);
       router.push("/");
     } catch (loginError) {
