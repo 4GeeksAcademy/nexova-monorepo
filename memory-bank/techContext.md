@@ -15,6 +15,10 @@
 - Uso de Suspense en la página principal para soportar correctamente hooks de navegación y parámetros en cliente.
 - Enfoque human-in-the-loop: la IA asiste el pre-cribado y ranking, pero la decisión final de selección sigue en manos del consultor.
 
+- Backend único en FastAPI (`services/api`) con persistencia dual: TinyDB para usuarios/perfiles/proveedores y Supabase/Postgres vía SQLModel para inventario y telemetría. El backoffice consume la API a través de route handlers proxy (`app/api/*`), salvo la telemetría, que el navegador envía directamente a `NEXT_PUBLIC_TELEMETRY_ENDPOINT`.
+- Tablas que necesitan DDL que SQLModel no expresa (triggers, RLS, índices por expresión) se crean con SQL versionado en `services/api/migrations/` y se aplican a mano en Supabase; quedan fuera de `SQLModel.metadata` para que `create_all()` no las cree incompletas. Primer caso: `telemetry_events` (append-only).
+- El catálogo de telemetría `docs/telemetry/event-schemas.json` es contrato ejecutable: la API lee de él los allowlists de propiedades en tiempo de arranque (ruta configurable con `TELEMETRY_SCHEMAS_PATH`).
+
 ## Restricciones técnicas
 - Dependencia obligatoria de variable de entorno para URL de API; sin configuración no funciona la integración.
 - Restricción de valores de estado y etapa mediante enums cerrados; cualquier valor fuera de contrato rompe consistencia.

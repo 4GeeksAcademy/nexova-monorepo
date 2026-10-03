@@ -29,7 +29,9 @@ Variables de entorno (`services/api/.env`, ver `.env.example`):
 - `RESEND_FROM_EMAIL` — remitente del email de recuperación (por defecto `onboarding@resend.dev`).
 - `FRONTEND_URL` — base usada para construir el link `/reset-password?token=...` del email.
 - `RESEND_API_KEY` — API key de [Resend](https://resend.com/api-keys). Nunca hardcodeada, nunca commiteada.
-- `TELEMETRY_ENDPOINT` — endpoint de ingesta de telemetría (por defecto `http://localhost:8000/telemetry/events`, el propio stub). Se lee desde ya aunque todavía no se usa para redirigir tráfico.
+- `TELEMETRY_SCHEMAS_PATH` — (opcional) ruta a `event-schemas.json`, el catálogo del que salen los allowlists de telemetría. Por defecto `docs/telemetry/event-schemas.json` de la raíz del monorepo.
+
+Telemetría: `POST /telemetry/events` persiste los eventos en la tabla `telemetry_events` de Supabase. La tabla se crea con `migrations/002_telemetry_events.sql` (no con `create_all`), que hay que aplicar una vez en Supabase antes de arrancar. Ver `docs/telemetry/telemetry-plan.md` §4.
 
 Rutas protegidas fuera de `/users`/`/auth`/`/profiles` (requieren
 `Authorization: Bearer <token>`): `POST /suppliers`,

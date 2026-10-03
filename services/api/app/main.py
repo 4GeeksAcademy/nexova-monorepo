@@ -14,10 +14,13 @@ Ejecución local:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
 import time
+from functools import partial
+from typing import Any
 
 # --- Hacer importable el paquete compartido sin necesidad de `pip install` ---
 try:
@@ -55,6 +58,22 @@ _ORDER_VALIDATION_TELEMETRY = {
     "/inventory/orders/outbound": "outbound_order_rejected",
 }
 
+# La propia ingesta de telemetría no emite api_request_*: cada lote guardado
+# generaría otra fila sobre sí mismo.
+_TELEMETRY_EXCLUDED_ROUTES = frozenset({"/telemetry/events"})
+
+
+def _emit_telemetry_in_background(event_type: str, **kwargs: Any) -> None:
+    """Persiste el evento en el threadpool sin esperar al insert.
+
+    Desde código async, `log_telemetry_event` (insert síncrono en Supabase)
+    bloquearía el event loop y sumaría su latencia a cada respuesta. Nunca
+    lanza, así que no hace falta recoger el resultado del future.
+    """
+    asyncio.get_running_loop().run_in_executor(
+        None, partial(log_telemetry_event, event_type, **kwargs)
+    )
+
 app = FastAPI(
     title="Nexova API",
     description="API centralizada de Nexova — soporte, operaciones y más.",
@@ -67,7 +86,7 @@ async def order_validation_telemetry_handler(request: Request, exc: RequestValid
     event_type = _ORDER_VALIDATION_TELEMETRY.get(request.url.path)
     if event_type is not None:
         body = exc.body if isinstance(exc.body, dict) else {}
-        log_telemetry_event(
+        _emit_telemetry_in_background(
             event_type,
             source="backend",
             session_id=None,
@@ -92,12 +111,15 @@ async def order_validation_telemetry_handler(request: Request, exc: RequestValid
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
     start = time.perf_counter()
+    emit_telemetry = request.url.path not in _TELEMETRY_EXCLUDED_ROUTES
     try:
         response = await call_next(request)
     except Exception as exc:
         duration = (time.perf_counter() - start) * 1000
         logger.info(f"{request.method} {request.url.path} → 500 | {duration:.1f}ms")
-        log_telemetry_event(
+        if not emit_telemetry:
+            raise
+        _emit_telemetry_in_background(
             "api_request_failed",
             source="backend",
             session_id=None,
@@ -118,11 +140,14 @@ async def timing_middleware(request: Request, call_next):
         f"{request.method} {request.url.path} → {response.status_code} | {duration:.1f}ms"
     )
 
+    if not emit_telemetry:
+        return response
+
     route_template = request.scope.get("route")
     route_path = route_template.path if route_template is not None else request.url.path
 
     if response.status_code >= 500:
-        log_telemetry_event(
+        _emit_telemetry_in_background(
             "api_request_failed",
             source="backend",
             session_id=None,
@@ -136,7 +161,7 @@ async def timing_middleware(request: Request, call_next):
             },
         )
     elif random.random() < API_TELEMETRY_SAMPLE_RATE:
-        log_telemetry_event(
+        _emit_telemetry_in_background(
             "api_request_completed",
             source="backend",
             session_id=None,
