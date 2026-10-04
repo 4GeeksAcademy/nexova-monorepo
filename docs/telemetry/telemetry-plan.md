@@ -237,3 +237,21 @@ Respuestas: `200 {received, stored, rejected}` si el envelope es parseable; `422
 - **Append-only:** triggers `BEFORE UPDATE OR DELETE` (por fila) y `BEFORE TRUNCATE` lanzan una excepción. La API no tiene ninguna ruta que actualice o borre eventos.
 - **Idempotencia:** el `TelemetryService` reintenta con backoff; si un insert se completó pero la respuesta se perdió, el reintento no duplica filas (`ON CONFLICT DO NOTHING` sobre el `eventId`). Un duplicado ignorado cuenta como `stored`: el evento está guardado.
 - **Acceso:** RLS activada sin políticas — PostgREST no expone la tabla a `anon`/`authenticated`; la API escribe como propietaria vía `DATABASE_URL`.
+
+## 5. Reporte técnico (`GET /telemetry/report`)
+
+Pipeline de análisis con Pandas en `services/api/telemetry/analysis.py` y endpoint en `services/api/routes/telemetry.py`. Es un reporte **técnico** (salud del sistema), no de negocio.
+
+| Métrica | Pregunta operacional | Carga (SQL) | Resultado |
+|---|---|---|---|
+| `events_per_day` | ¿Qué eventos ocurren y con qué frecuencia? | todos los tipos de la ventana | `{date, event_type, count}` |
+| `error_rate_by_type` | ¿Qué tipos de error aparecen y qué peso tienen en el tráfico del día? | todos los tipos (denominador) | `{date, event_type, errors, total_events, error_rate}` |
+| `auth_failure_rate` | ¿Qué fracción de logins falla cada día? | `login_failed`, `login_succeeded` | `{date, failed, succeeded, failure_rate}` |
+
+- **Ventana:** `start_date`/`end_date` opcionales (ISO 8601; sin zona = UTC), inicio inclusivo y fin exclusivo, aplicada una sola vez en SQL. Por defecto, últimos 7 días.
+- **Fórmula por función:** cargar (SQL) → refinar → `pd.to_datetime(..., utc=True)` → agrupar → agregar. Sin loops; devuelven `list[dict]`.
+- **`error_rate`:** errores de ese `event_type` / total de eventos del día. Dividir por el total del mismo tipo daría siempre 0 o 1.
+- **Caché:** 60 s en memoria (`cache.py`). Sin parámetros la clave es fija (`telemetry:report:default`); si fuera la ventana "ahora − 7 d" nunca habría cache hit.
+- **Acceso:** cualquier usuario autenticado (provisional: hoy no existe ningún admin ni flujo para crearlo; pendiente restringir a `Role.ADMIN`). `/telemetry/report` está excluido de `api_request_*` para no medirse a sí mismo.
+- **Nombres de evento:** el enunciado habla de `user_login_*`; el catálogo real usa `login_failed` / `login_succeeded`.
+- **Dashboard:** `/telemetry` en el backoffice (tablas y barras, sin librería de gráficos). No emite `backoffice_section_viewed` porque `telemetry` no está en el enum de `section` del catálogo; añadirlo exige modificar el contrato.

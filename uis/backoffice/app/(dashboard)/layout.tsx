@@ -47,6 +47,15 @@ export default function DashboardLayout({
               </Link>
             </li>
             <li>
+              <Link
+                href="/telemetry"
+                prefetch={false}
+                className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
+              >
+                Telemetría técnica
+              </Link>
+            </li>
+            <li>
               <span className="block rounded-xl px-4 py-2 text-sm text-slate-500">
                 Flujo de Caja
               </span>
