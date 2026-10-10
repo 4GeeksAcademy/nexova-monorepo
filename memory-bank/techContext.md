@@ -19,6 +19,8 @@
 - Tablas que necesitan DDL que SQLModel no expresa (triggers, RLS, índices por expresión) se crean con SQL versionado en `services/api/migrations/` y se aplican a mano en Supabase; quedan fuera de `SQLModel.metadata` para que `create_all()` no las cree incompletas. Primer caso: `telemetry_events` (append-only).
 - El catálogo de telemetría `docs/telemetry/event-schemas.json` es contrato ejecutable: la API lee de él los allowlists de propiedades en tiempo de arranque (ruta configurable con `TELEMETRY_SCHEMAS_PATH`).
 
+- Análisis de telemetría con Pandas (`services/api/telemetry/analysis.py`): cada métrica carga solo lo necesario con SQL (ventana `[start, end)` UTC y `event_type`), convierte `timestamp` con `utc=True` antes de agrupar y se sirve vía `GET /telemetry/report` con la caché en memoria de `cache.py` (60 s).
+
 ## Restricciones técnicas
 - Dependencia obligatoria de variable de entorno para URL de API; sin configuración no funciona la integración.
 - Restricción de valores de estado y etapa mediante enums cerrados; cualquier valor fuera de contrato rompe consistencia.

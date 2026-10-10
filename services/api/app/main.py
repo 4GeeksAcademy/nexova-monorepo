@@ -58,9 +58,9 @@ _ORDER_VALIDATION_TELEMETRY = {
     "/inventory/orders/outbound": "outbound_order_rejected",
 }
 
-# La propia ingesta de telemetría no emite api_request_*: cada lote guardado
-# generaría otra fila sobre sí mismo.
-_TELEMETRY_EXCLUDED_ROUTES = frozenset({"/telemetry/events"})
+# La propia ingesta y el reporte de telemetría no emiten api_request_*: cada lote
+# guardado (o cada consulta del reporte) generaría otra fila sobre sí mismo.
+_TELEMETRY_EXCLUDED_ROUTES = frozenset({"/telemetry/events", "/telemetry/report"})
 
 
 def _emit_telemetry_in_background(event_type: str, **kwargs: Any) -> None:
