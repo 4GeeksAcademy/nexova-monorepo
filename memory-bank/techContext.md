@@ -21,6 +21,9 @@
 
 - Análisis de telemetría con Pandas (`services/api/telemetry/analysis.py`): cada métrica carga solo lo necesario con SQL (ventana `[start, end)` UTC y `event_type`), convierte `timestamp` con `utc=True` antes de agrupar y se sirve vía `GET /telemetry/report` con la caché en memoria de `cache.py` (60 s).
 
+- Pipelines de datos con Prefect 3 en `data/pipelines/` (`pipeline.py` = flow, tasks y CLI; la lógica ETL vive en un paquete sin Prefect, `business_performance/`, para que la API la reutilice). Corren sin servidor Prefect dedicado (servidor temporal local) y leen `DATABASE_URL` del entorno. La API no duplica lógica: `services/api/reporting/pipeline_bridge.py` añade `data/pipelines` a `sys.path` (ruta por `PIPELINES_PATH`; en Docker, bind mount en `/data/pipelines`). No se importa como `data.pipelines` porque `services/api/data/` (TinyDB) ocupa el nombre `data`.
+- Los resultados de negocio se publican en un esquema Postgres aparte, `reporting` (migración `003_reporting_schema.sql`), nunca en `telemetry_events`. Toda carga es un upsert de reemplazo sobre un constraint `unique`, y cada corrida queda en `reporting.pipeline_runs`, que además hace de lock (una corrida `running` por pipeline).
+
 ## Restricciones técnicas
 - Dependencia obligatoria de variable de entorno para URL de API; sin configuración no funciona la integración.
 - Restricción de valores de estado y etapa mediante enums cerrados; cualquier valor fuera de contrato rompe consistencia.

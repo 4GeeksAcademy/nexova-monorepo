@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.111",
     "libpass[bcrypt]>=1.9.3",
     "pandas>=2.2",
+    "prefect>=3",
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.2",
     "python-jose[cryptography]>=3.5.0",
@@ -28,4 +29,4 @@ seed-inventory = "seed_inventory:main"
 
 [tool.setuptools]
 py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets", "telemetry_store"]
-packages = ["telemetry"]
+packages = ["telemetry", "reporting"]

@@ -1,0 +1,3 @@
+# Snapshots de validación que escribe la task opcional `export_eval_snapshot`
+# de data/pipelines/pipeline.py. Se regeneran en cada corrida: no se versionan.
+*.json

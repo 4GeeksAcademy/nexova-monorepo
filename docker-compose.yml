@@ -9,6 +9,7 @@ services:
       - ./services/api:/app
       - ./packages/incidents-analyzer:/packages/incidents-analyzer:ro
       - ./docs/telemetry:/docs/telemetry:ro
+      - ./data/pipelines:/data/pipelines:ro
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM}
@@ -20,6 +21,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
       - DATABASE_URL=${DATABASE_URL}
       - TELEMETRY_SCHEMAS_PATH=/docs/telemetry/event-schemas.json
+      - PIPELINES_PATH=/data/pipelines
     networks:
       - nexova-net
 

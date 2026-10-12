@@ -1,6 +1,6 @@
 # Diseño del Pipeline de Desempeño de Negocio — Nexova
 
-> **Estado:** diseño (Parte 1 de 3), sin código de orquestación.
+> **Estado:** diseño aprobado (Parte 1) e **implementado (Parte 2 de 3)** en `data/pipelines/pipeline.py`. Cómo ejecutarlo: §11.
 > **Entregable:** "Reporte Semanal de Desempeño por Oficina y Programa" para Laura (CEO) y Elena (L&D), fresco los lunes.
 > **Fuente:** `public.telemetry_events` (solo lectura). **Destino:** esquema `reporting`.
 
@@ -16,6 +16,9 @@
 | D6 | Lock por pipeline en `reporting.pipeline_runs`: una sola corrida `running` a la vez. | Cron y disparo manual pueden tener ventanas distintas pero tocan las mismas filas; un lock por ventana no las protegería. |
 | D7 | Endpoints con `get_current_user`; restricción a admin como TODO. | Igual que `/telemetry/report`; no existen admins. |
 | D8 | `kits_delivered_count` es el **conteo de eventos** `outbound_order_created` (no `Σ quantity`), sin filtrar por categoría ni `exit_type`. | Es la definición literal del CONTEXT. Las unidades entregadas (`Σ quantity`) quedan para v2 como columna aparte, para no mezclar ambos números. |
+| D9 | La caché de la transformación (1 h) se indexa por el **contenido** leído: hash de los `event_id` de la ventana + versión de la lógica. | La fuente es append-only, así que el conjunto de `event_id` determina el resultado; un evento tardío cambia la clave y nunca se sirve un agregado obsoleto. |
+| D10 | Paso opcional `export_eval_snapshot`: JSON de validación en `data/eval/business_performance/`. Su fallo no interrumpe la corrida. | El reporte ya está publicado cuando corre; es evidencia de auditoría, no parte del entregable. |
+| D11 | `total_material_cost` se redondea a 4 decimales. | Hace el agregado determinista frente al orden de suma de los floats; si no, `rows_revised` daría falsos positivos. |
 
 ## 1. Estado actual y brecha
 
@@ -59,6 +62,8 @@ WHERE "timestamp" >= :window_start AND "timestamp" < :window_end
 ```
 
 `kit_cost_variance_detected` guarda `variance_pct` en `value`, así que D1 no necesita leer el JSONB.
+
+En la implementación (`business_performance/extract.py`) los numéricos del JSONB se leen como texto y se convierten en Pandas con `errors="coerce"`, en vez de con `::numeric`/`::int` en SQL: un solo evento mal formado no debe tumbar la extracción entera (cae en `rows_missing_cost`). La consulta añade `ORDER BY "timestamp", event_id` para que el resultado sea determinista.
 
 ## 4. Flujo de datos
 
@@ -104,7 +109,7 @@ ON CONFLICT (office, programme_id, week_start) DO UPDATE SET
 | Endpoint | Función | Función en `data/pipelines/` |
 |----------|---------|------------------------------|
 | `GET /reporting/pipeline-runs/latest` | Estado de la última corrida (`404` si no hay) | `get_latest_run()` |
-| `POST /reporting/pipeline-runs` | Disparo manual (`week_start` opcional); `202` con `run_id`, `409` si el lock está tomado | `run_weekly_performance_pipeline(trigger="manual")` |
+| `POST /reporting/pipeline-runs` | Disparo manual (`week_start` y `lookback_weeks` opcionales); `202` con `run_id`, `409` si el lock está tomado | `start_manual_run()` toma el lock antes de responder y `run_weekly_performance_pipeline(trigger="manual", run_id=...)` corre en segundo plano |
 | `GET /reporting/weekly-office-program-performance` | KPIs (`week_start` opcional, debe ser lunes; por defecto la última calculada) | `query_weekly_kpis(week_start)` |
 
 La respuesta de KPIs es la del CONTEXT (`week_start` + `entries[]` con `office`, `programme_id`, los 4 contadores y `currency`). Usa `cache.get_or_set` (TTL 60 s), invalidado al terminar la carga. La lógica ETL vive en `data/pipelines/business_performance/`; `services/` solo importa de ahí.
@@ -146,11 +151,21 @@ Si la carga falla tras 847 de 1 412 filas, la transacción hace rollback y la ta
 
 **Flow principal:** `weekly_office_program_performance_flow` (parámetros `week_start`, `lookback_weeks=2`, `trigger`). Flow opcional de backfill por rango de semanas.
 
-**Tasks:** `open_run` (toma el lock) → `extract_events` (`retries=3`) → `transform_weekly_aggregates` (pura, sin I/O) → `load_weekly_performance` (`retries=3`, seguro por idempotencia) → `close_run` (cierra el log e invalida la caché; corre también ante fallo).
+**Tasks:** `open_run` (toma el lock) → `extract_events` (`retries=3`) → `transform_weekly_aggregates` (pura, sin I/O, con caché) → `load_weekly_performance` (`retries=3`, seguro por idempotencia) → `export_eval_snapshot` (opcional) → `close_run` (cierra el log; corre también ante fallo). Entre etapas, `mark_phase` anota el checkpoint en `pipeline_runs.phase`.
+
+| Task | Resiliencia | Si falla |
+|------|-------------|----------|
+| `open_run`, `mark_phase`, `close_run` | `retries=2`, espera 5 s | Se propaga: sin bitácora no se corre. |
+| `extract_events` | `retries=3`, espera 2/10/30 s | Corrida `failed`, `phase = 'extract'`. |
+| `transform_weekly_aggregates` | Caché: `cache_key_fn` (D9) + `cache_expiration` de 1 h | Corrida `failed`, `phase = 'transform'`. |
+| `load_weekly_performance` | `retries=3`, espera 2/10/30 s | Rollback; corrida `failed`, `phase = 'load'`. |
+| `export_eval_snapshot` | Sin reintentos (no crítica) | Se registra un aviso y la corrida termina `completed`. |
+
+Las etapas críticas y el paso opcional se invocan con `return_state=True`: el flow inspecciona el estado, anota la fase del fallo y cierra la corrida antes de propagar el error.
 
 **States:** `Running` → `running`; `Completed` → `completed`; `Failed` → `failed`; `Retrying` sigue en `running`; `Crashed` queda `running` y se limpia por antigüedad.
 
-**Blocks:** `Secret` `nexova-database-url` (hoy `DATABASE_URL` en `services/api/database.py`) y `JSON` `reporting-pipeline-config` (`lookback_weeks`, lista de `event_type`, ventana de obsolescencia). Deployment con cron `0 4 * * 1` (UTC). En v1 el `POST` invoca la función del flow directamente en `BackgroundTasks`.
+**Configuración (v1):** `DATABASE_URL` por entorno (la misma de `services/api/database.py`) y constantes en `business_performance/config.py`. Los Blocks `Secret` `nexova-database-url` y `JSON` `reporting-pipeline-config` quedan para cuando exista un servidor Prefect compartido. Cron `0 4 * * 1` (UTC) con `pipeline.py --serve`. El `POST` invoca la función del flow directamente en `BackgroundTasks`; la caché de la API (`reporting:`) la invalida ese mismo proceso al terminar, y una corrida por CLI o cron se refleja al expirar el TTL de 60 s.
 
 ## 9. Preguntas de diseño
 
@@ -167,9 +182,48 @@ Si la carga falla tras 847 de 1 412 filas, la transacción hace rollback y la ta
 
 ## 10. Riesgos y decisiones abiertas
 
-**Huecos del repo (Parte 2):** `data/` no está montado en Docker (`context: ./services`); Prefect no está en las dependencias; `services/api/data/` colisiona con un paquete llamado `data`, por eso se propone `business_performance` importado vía `sys.path`; no existen admins; `office` es texto libre.
+**Huecos del repo resueltos en la Parte 2:** `data/pipelines` se monta en el contenedor de la API (`/data/pipelines`, variable `PIPELINES_PATH`); `prefect>=3` está en las dependencias de `services/api`; `services/api/data/` colisiona con un paquete llamado `data`, por eso la API importa `pipeline` y `business_performance` añadiendo `data/pipelines` a `sys.path` (`services/api/reporting/pipeline_bridge.py`).
+
+**Siguen abiertos:** no existen admins (D7); `office` es texto libre, así que el pipeline descarta y cuenta lo que no sea `valencia`/`miami`; tests automatizados y subflows (Parte 3).
 
 **Abierta:**
 - **A1.** La semana es UTC (regla del CONTEXT): un evento del lunes de madrugada hora local puede caer en la semana anterior.
 
 **Restricciones cumplidas:** no se modifica `analysis.py` ni `GET /telemetry/report`; no se escribe en `telemetry_events`; no hay campos nuevos en la captura; no se mezclan monedas.
+
+## 11. Ejecución (Parte 2)
+
+**Frecuencia del ciclo de reporting:** semanal, lunes `04:00 UTC` (cron `0 4 * * 1`), para que el reporte esté fresco la mañana del lunes. Además admite disparo manual por CLI o por `POST /reporting/pipeline-runs`.
+
+**Requisitos:** `DATABASE_URL` en `services/api/.env` (o en el entorno) y la migración `services/api/migrations/003_reporting_schema.sql` aplicada en Supabase.
+
+```bash
+# Desde la raíz del monorepo. ETL completo: semana actual + anterior.
+uv run --project services/api python data/pipelines/pipeline.py
+
+# Backfill: recalcular 4 semanas hasta la del lunes indicado.
+uv run --project services/api python data/pipelines/pipeline.py --week-start 2026-10-05 --lookback-weeks 4
+
+# Dejarlo programado con el cron semanal (necesita un servidor Prefect, ver abajo).
+uv run --project services/api python data/pipelines/pipeline.py --serve
+```
+
+Con el entorno de `services/api` activado equivale a `python data/pipelines/pipeline.py`. El comando imprime el resumen de la corrida (ventana, contadores, `run_id`, estado) y sale con código distinto de cero si una etapa crítica falla.
+
+**UI de Prefect (opcional):** sin servidor, el flow levanta uno temporal y los estados se ven en consola. Para verlos en la UI:
+
+```bash
+uv run --project services/api prefect server start          # UI en http://127.0.0.1:4200
+# En otra terminal, antes de lanzar el pipeline:
+export PREFECT_API_URL=http://127.0.0.1:4200/api            # PowerShell: $env:PREFECT_API_URL = "..."
+```
+
+**Estructura del código:**
+
+| Ruta | Contenido |
+|------|-----------|
+| `data/pipelines/pipeline.py` | Flow `weekly_office_program_performance_flow`, tasks y CLI. |
+| `data/pipelines/business_performance/` | Lógica ETL sin Prefect: `extract.py`, `transform.py`, `load.py`, `runs.py` (bitácora y lock), `queries.py`, `windows.py`, `config.py`, `db.py`. |
+| `data/eval/business_performance/` | Snapshots de validación de cada ventana (no se versionan). |
+| `services/api/migrations/003_reporting_schema.sql` | Esquema `reporting` y sus dos tablas. |
+| `services/api/reporting/` | Los 3 endpoints; importan de `data/pipelines/` vía `pipeline_bridge.py`. |

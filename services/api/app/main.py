@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import incidents
 from database import create_db_and_tables
 from models import HealthResponse
+from reporting import router as reporting
 from routers import inventory
 from routes import auth, profiles, suppliers, telemetry, users
 from routes.telemetry import log_telemetry_event
@@ -203,6 +204,7 @@ app.include_router(incidents.router)
 app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(telemetry.router)
+app.include_router(reporting.router)
 
 
 @app.get("/api/health", response_model=HealthResponse)
