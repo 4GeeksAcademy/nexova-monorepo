@@ -18,6 +18,7 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0",
     "python-multipart>=0.0.9",
     "resend>=2.0.0",
+    "sqlalchemy>=2.0,<2.1",
     "sqlmodel>=0.0.42",
     "tinydb>=4.8",
     "uvicorn[standard]>=0.29",
@@ -30,3 +31,8 @@ seed-inventory = "seed_inventory:main"
 [tool.setuptools]
 py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets", "telemetry_store"]
 packages = ["telemetry", "reporting"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
