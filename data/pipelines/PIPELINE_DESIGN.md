@@ -1,6 +1,6 @@
 # Diseño del Pipeline de Desempeño de Negocio — Nexova
 
-> **Estado:** diseño aprobado (Parte 1) e **implementado (Parte 2 de 3)** en `data/pipelines/pipeline.py`. Cómo ejecutarlo: §11.
+> **Estado:** diseño aprobado (Parte 1), implementado (Parte 2) y llevado a producción con subflows, tests y dashboard (**Parte 3 de 3**). Cómo ejecutarlo: §11. Parte 3: §12.
 > **Entregable:** "Reporte Semanal de Desempeño por Oficina y Programa" para Laura (CEO) y Elena (L&D), fresco los lunes.
 > **Fuente:** `public.telemetry_events` (solo lectura). **Destino:** esquema `reporting`.
 
@@ -151,17 +151,40 @@ Si la carga falla tras 847 de 1 412 filas, la transacción hace rollback y la ta
 
 **Flow principal:** `weekly_office_program_performance_flow` (parámetros `week_start`, `lookback_weeks=2`, `trigger`). Flow opcional de backfill por rango de semanas.
 
-**Tasks:** `open_run` (toma el lock) → `extract_events` (`retries=3`) → `transform_weekly_aggregates` (pura, sin I/O, con caché) → `load_weekly_performance` (`retries=3`, seguro por idempotencia) → `export_eval_snapshot` (opcional) → `close_run` (cierra el log; corre también ante fallo). Entre etapas, `mark_phase` anota el checkpoint en `pipeline_runs.phase`.
+**Subflows (Parte 3):** el flow principal no contiene lógica; abre la corrida (`open_run`), invoca un subflow por fase y la cierra (`close_run`). Entre fases, `mark_phase` anota el checkpoint en `pipeline_runs.phase`.
+
+```
+weekly_office_program_performance_flow
+├─ open_run
+├─ extract_business_telemetry_events_flow           (window_start, window_end) → eventos
+│    └─ extract_events
+├─ compute_weekly_office_program_kpis_flow          (eventos) → {rows, quality}
+│    ├─ prepare_business_events                      dedupe, oficina, programa, semana (con caché)
+│    ├─ compute_total_material_cost                  KPI "Costo de material por oficina/programa"
+│    ├─ compute_kits_delivered_count                 KPI "Kits entregados"
+│    ├─ compute_shortage_events_count                KPI "Frecuencia de escasez"
+│    ├─ compute_cost_variance_events_count           KPI "Frecuencia de variación de costo"
+│    └─ assemble_weekly_office_program_rows          une los 4 KPIs + moneda
+├─ publish_weekly_office_program_performance_flow   (rows) → {rows_written, rows_revised}
+│    └─ load_weekly_performance
+├─ check_capture_silence_flow                       opcional (§12.4)
+│    └─ count_session_events
+├─ export_kpi_eval_snapshot_flow                    opcional
+│    └─ export_eval_snapshot
+└─ close_run
+```
 
 | Task | Resiliencia | Si falla |
 |------|-------------|----------|
 | `open_run`, `mark_phase`, `close_run` | `retries=2`, espera 5 s | Se propaga: sin bitácora no se corre. |
 | `extract_events` | `retries=3`, espera 2/10/30 s | Corrida `failed`, `phase = 'extract'`. |
-| `transform_weekly_aggregates` | Caché: `cache_key_fn` (D9) + `cache_expiration` de 1 h | Corrida `failed`, `phase = 'transform'`. |
+| `prepare_business_events` | Caché: `cache_key_fn` (D9) + `cache_expiration` de 1 h | Corrida `failed`, `phase = 'transform'`. |
+| `compute_*`, `assemble_weekly_office_program_rows` | Sin reintentos (puras: un fallo es un bug) | Corrida `failed`, `phase = 'transform'`. |
 | `load_weekly_performance` | `retries=3`, espera 2/10/30 s | Rollback; corrida `failed`, `phase = 'load'`. |
+| `count_session_events` | `retries=2`, espera 5 s | Falla el subflow opcional; la corrida sigue. |
 | `export_eval_snapshot` | Sin reintentos (no crítica) | Se registra un aviso y la corrida termina `completed`. |
 
-Las etapas críticas y el paso opcional se invocan con `return_state=True`: el flow inspecciona el estado, anota la fase del fallo y cierra la corrida antes de propagar el error.
+Los tres subflows críticos y los dos opcionales se invocan con `return_state=True`: el flow principal inspecciona el estado; si falla uno crítico, anota la fase y cierra la corrida antes de propagar el error; si falla uno opcional, solo registra un aviso.
 
 **States:** `Running` → `running`; `Completed` → `completed`; `Failed` → `failed`; `Retrying` sigue en `running`; `Crashed` queda `running` y se limpia por antigüedad.
 
@@ -172,7 +195,7 @@ Las etapas críticas y el paso opcional se invocan con `return_state=True`: el f
 1. **Duplicados en origen:** la clave es `eventId` (envelope), aplicada en la **ingesta** con índice único + `ON CONFLICT DO NOTHING`. Los agregados cuentan después de deduplicar; para los eventos con `order_id` también por `(event_type, order_id)`.
 2. **Reintento tras fallo:** §7.2; rollback de la transacción y upsert con reemplazo.
 3. **Eventos tardíos:** §7.2; recalculo de dos semanas y `rows_revised`.
-4. **Silencio vs. ausencia:** toda corrida `completed` deja fila en `pipeline_runs`, incluso con `rows_read = 0`; sin fila, el pipeline no corrió. Un cero de negocio se contrasta con la actividad de sesiones (`backoffice_section_viewed`, `login_succeeded`): cero eventos de todo tipo sugiere captura caída. Heartbeat explícito: Parte 2.
+4. **Silencio vs. ausencia:** toda corrida `completed` deja fila en `pipeline_runs`, incluso con `rows_read = 0`; sin fila, el pipeline no corrió. Un cero de negocio se contrasta con la actividad de sesiones (`backoffice_section_viewed`, `login_succeeded`): cero eventos de todo tipo sugiere captura caída. **Implementado en la Parte 3** como `check_capture_silence_flow` (§12.4).
 5. **Trazabilidad:** `eventId` → ventana de la corrida (`window_start/end`) → `run_id`; la fila del reporte se enlaza con su corrida por `computed_at`. Los eventos de inventario se emiten con `request_id=None`, así que `requestId` no sirve para correlacionar; se usa ventana y conteos.
 6. **Crecimiento vs. pérdida:** se compara el volumen con las sesiones activas y las oficinas que reportan. Riesgo: `log_telemetry_event` nunca lanza, así que un fallo de Supabase pierde el evento sin rastro.
 7. **Caída de DB:** checkpoint en `pipeline_runs.phase`. No se persisten resultados intermedios; la siguiente corrida recalcula todo.
@@ -184,7 +207,7 @@ Las etapas críticas y el paso opcional se invocan con `return_state=True`: el f
 
 **Huecos del repo resueltos en la Parte 2:** `data/pipelines` se monta en el contenedor de la API (`/data/pipelines`, variable `PIPELINES_PATH`); `prefect>=3` está en las dependencias de `services/api`; `services/api/data/` colisiona con un paquete llamado `data`, por eso la API importa `pipeline` y `business_performance` añadiendo `data/pipelines` a `sys.path` (`services/api/reporting/pipeline_bridge.py`).
 
-**Siguen abiertos:** no existen admins (D7); `office` es texto libre, así que el pipeline descarta y cuenta lo que no sea `valencia`/`miami`; tests automatizados y subflows (Parte 3).
+**Siguen abiertos:** no existen admins (D7); `office` es texto libre, así que el pipeline descarta y cuenta lo que no sea `valencia`/`miami`; los formularios del backoffice no piden `unit_cost` ni `programme_id`, así que las órdenes creadas desde ahí llegan sin costo (cuentan en `rows_missing_cost`) y nunca disparan `kit_cost_variance_detected`.
 
 **Abierta:**
 - **A1.** La semana es UTC (regla del CONTEXT): un evento del lunes de madrugada hora local puede caer en la semana anterior.
@@ -222,8 +245,65 @@ export PREFECT_API_URL=http://127.0.0.1:4200/api            # PowerShell: $env:P
 
 | Ruta | Contenido |
 |------|-----------|
-| `data/pipelines/pipeline.py` | Flow `weekly_office_program_performance_flow`, tasks y CLI. |
-| `data/pipelines/business_performance/` | Lógica ETL sin Prefect: `extract.py`, `transform.py`, `load.py`, `runs.py` (bitácora y lock), `queries.py`, `windows.py`, `config.py`, `db.py`. |
+| `data/pipelines/pipeline.py` | Flow principal, subflows, tasks y CLI. |
+| `data/pipelines/business_performance/` | Lógica ETL sin Prefect: `extract.py`, `transform.py`, `load.py`, `runs.py` (bitácora y lock), `queries.py`, `silence.py` (alerta de silencio), `windows.py`, `config.py`, `db.py`. |
 | `data/eval/business_performance/` | Snapshots de validación de cada ventana (no se versionan). |
+| `tests/pipelines/` | Tests unitarios (§12.2). |
 | `services/api/migrations/003_reporting_schema.sql` | Esquema `reporting` y sus dos tablas. |
 | `services/api/reporting/` | Los 3 endpoints; importan de `data/pipelines/` vía `pipeline_bridge.py`. |
+| `uis/backoffice/app/(reporting)/reporting/` | Dashboard de negocio (§12.3). |
+
+## 12. Parte 3 — subflows, tests y dashboard
+
+### 12.1 Subflows
+
+Topología en §8. Cada subflow tiene entradas y salidas explícitas (nada pasa por variables globales) y se puede ejecutar solo, por ejemplo para recalcular KPIs sobre eventos ya leídos sin tocar la base de datos:
+
+```python
+# Desde data/pipelines, con el entorno de services/api.
+from pipeline import compute_weekly_office_program_kpis_flow, extract_business_telemetry_events_flow
+from business_performance.windows import resolve_window
+
+start, end = resolve_window()                                   # semana actual + anterior
+events = extract_business_telemetry_events_flow(start, end)     # solo lectura
+result = compute_weekly_office_program_kpis_flow(events)        # sin base de datos
+```
+
+La transformación se partió en una task por KPI para que cada uno tenga su propio estado en Prefect y su propio test. La lógica sigue en `business_performance/transform.py` (funciones puras) y no en `data/process/`: el contenedor de la API solo monta `data/pipelines` (§10) y moverla obligaría a otro bind mount y otra entrada en `sys.path` sin ganar nada. La CLI (§11) y las funciones que usa la API no cambiaron.
+
+### 12.2 Tests
+
+`tests/pipelines/test_pipeline.py`, con datos en memoria que tienen la forma de la extracción de `telemetry_events`. `tests/pipelines/conftest.py` bloquea la base de datos en todos los tests: si uno intentara conectarse, falla.
+
+```bash
+# Desde la raíz del monorepo
+uv run --project services/api python -m pytest tests/pipelines/test_pipeline.py
+```
+
+Cubren cada task de KPI, incluido un valor calculado a mano contra la definición del CONTEXT (10 × 12,50 + 4 × 15,00 = 185,00 EUR), entradas defensivas (costo nulo o de tipo incorrecto, oficina inválida, programa vacío, timestamp nulo), deduplicación, semanas ISO en UTC, monedas separadas, la clave de caché ante eventos tardíos, la alerta de silencio, y el subflow de KPIs ejecutado como flow de Prefect por sí solo.
+
+### 12.3 Dashboard
+
+`/reporting` en el backoffice (enlace "Reporte semanal" en el menú lateral). Consume `GET /reporting/weekly-office-program-performance` y `GET /reporting/pipeline-runs/latest` a través de los proxies de `uis/backoffice/app/api/reporting/`.
+
+- Una tarjeta por KPI con el nombre exacto del CONTEXT y una frase que explica qué mide.
+- Período en lenguaje natural ("Semana del lunes 21 al domingo 27 de septiembre de 2026") y navegación entre semanas.
+- Importes con su moneda y total por oficina; EUR y USD nunca se suman.
+- Escasez y variación de costo resaltadas cuando son mayores que cero, con la acción que sugiere el CONTEXT (reordenar, renegociar).
+- Fecha de la última actualización, y aviso visible si la última corrida falló.
+
+### 12.4 Mejora adicional: alerta de silencio
+
+**Pregunta que responde:** la 4 (§9, "silencio vs. ausencia").
+
+**Por qué se priorizó:** era la única pregunta del diseño sin respuesta implementada (lock, idempotencia y eventos tardíos ya estaban desde la Parte 2), y protege directamente el entregable: sin ella, una caída de la captura llegaría al reporte de Laura como "cero kits entregados".
+
+**Cómo funciona:** el subflow opcional `check_capture_silence_flow` solo consulta la base de datos si la ventana no tuvo eventos de negocio. Entonces cuenta `login_succeeded` y `backoffice_section_viewed` en la misma ventana:
+
+| Eventos de negocio | Eventos de sesión | Estado | Lectura |
+|---|---|---|---|
+| > 0 | — | `active` | La captura funciona. |
+| 0 | > 0 | `no_business_activity` | La gente usó el sistema pero no movió material: el cero es real. |
+| 0 | 0 | `possible_capture_outage` | Aviso `WARNING`: probablemente la telemetría dejó de llegar. |
+
+El estado queda en el log de Prefect, en el resumen de la corrida (`capture_status`) y en el snapshot de `data/eval/`. No añade columnas ni migraciones.

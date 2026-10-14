@@ -11,7 +11,9 @@ COPY backoffice/package.json backoffice/package-lock.json* ./uis/backoffice/
 RUN npm install --prefix ./uis/backoffice
 
 COPY start.sh ./start.sh
-RUN chmod +x ./start.sh
+# En Windows git puede dejar start.sh con finales CRLF y el shell del
+# contenedor no lo encuentra ("./start.sh: not found"): se normaliza a LF.
+RUN sed -i 's/\r$//' ./start.sh && chmod +x ./start.sh
 
 EXPOSE 3000 3001
 
