@@ -48,6 +48,15 @@ export default function DashboardLayout({
             </li>
             <li>
               <Link
+                href="/reporting"
+                prefetch={false}
+                className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
+              >
+                Reporte semanal
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/telemetry"
                 prefetch={false}
                 className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"

@@ -17,6 +17,11 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_COST_VARIANCE,
 )
 
+# Señales de que la gente usa el sistema. Si la ventana tiene 0 eventos de
+# negocio, se miran estas para distinguir "no hubo movimiento" de "la captura
+# se cayó" (pregunta 4 del diseño). Solo se leen, nunca alimentan un KPI.
+SESSION_EVENT_TYPES: tuple[str, ...] = ("login_succeeded", "backoffice_section_viewed")
+
 # Eventos que traen `order_id`: además de por `event_id`, se deduplican por
 # (event_type, order_id). `stock_threshold_triggered` no lo lleva.
 ORDER_EVENT_TYPES: tuple[str, ...] = (EVENT_INBOUND, EVENT_OUTBOUND, EVENT_COST_VARIANCE)
