@@ -4,3 +4,7 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
+
+# Exports nocturnos de telemetría (scripts/nightly_export.py): pueden contener datos reales.
+data/raw/telemetry_*.csv
+data/raw/telemetry_*.csv.tmp

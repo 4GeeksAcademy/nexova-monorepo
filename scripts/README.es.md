@@ -35,3 +35,44 @@ no es necesario configurar DNS públicos ni fijar direcciones IP de Supabase.
 docker compose logs --tail=80 api
 curl --fail http://localhost:8000/api/health
 ```
+
+## Script nocturno de telemetría (`nightly_export.py`)
+
+Ticket #DEV-53. Para el día objetivo (por defecto, **ayer en UTC**):
+
+1. Exporta las filas de `telemetry_events` de ese día a
+   `data/raw/telemetry_YYYY-MM-DD.csv`, solo si el archivo no existe. Es un
+   backup de auditoría: el pipeline sigue leyendo de la base de datos.
+2. Lanza `data/pipelines/pipeline.py --trigger schedule --week-start <lunes>`
+   como subproceso (recalcula la semana del día objetivo y la anterior).
+3. Registra la ejecución en `public.job_runs`
+   (`pending → processing → completed | failed`) vía `services/job_runner/`.
+
+Requisitos: `DATABASE_URL` y la migración `services/api/migrations/004_job_runs.sql`
+aplicada (a mano, igual que la 002 y la 003).
+
+```bash
+python scripts/nightly_export.py
+TARGET_DATE=2026-10-14 python scripts/nightly_export.py   # fecha arbitraria
+```
+
+Comportamiento:
+
+- **Lock**: si ya hay una fila `processing` de `nightly_export`, la instancia
+  nueva registra `status=aborted` en el log y sale con código 0. Un índice
+  único parcial sobre `status = 'processing'` impide que dos instancias lleguen
+  a la vez. Una fila `processing` de más de 2 h (proceso muerto con SIGKILL)
+  se cierra como `failed` en la siguiente ejecución.
+- **Idempotencia**: si el día ya tiene una fila `completed`, no se exporta ni se
+  lanza el pipeline (`status=skipped`). Un día `failed` sí se reintenta.
+- **Fallos**: cualquier excepción (o SIGTERM) deja la fila en `failed` con el
+  mensaje de error y el script sale con código 1.
+
+En Docker lo dispara el servicio `scheduler` (supercronic) con el cron de
+`services/scheduler/crontab`: `30 2 * * *` (02:30 UTC). Para ejecutarlo a mano
+dentro del contenedor:
+
+```bash
+docker compose exec scheduler python /repo/scripts/nightly_export.py
+docker compose logs --tail=50 scheduler
+```
