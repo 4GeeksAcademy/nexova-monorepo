@@ -1,0 +1,6 @@
+# Jobs del contenedor scheduler (supercronic, zona horaria UTC).
+#
+# nightly_export (#DEV-53): todos los días a las 02:30 UTC exporta la telemetría
+# del día anterior a data/raw/ y lanza el pipeline de desempeño. Deja margen
+# tras la medianoche UTC para eventos que llegan con retraso en lotes.
+30 2 * * * python /repo/scripts/nightly_export.py
