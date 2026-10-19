@@ -25,6 +25,23 @@ services:
     networks:
       - nexova-net
 
+  # Jobs nocturnos (supercronic). Proceso aparte de la API: no comparte hilo
+  # ni contenedor con FastAPI. Cron en services/scheduler/crontab.
+  scheduler:
+    build:
+      context: ./services
+      dockerfile: scheduler/Dockerfile
+    init: true
+    volumes:
+      - ./scripts:/repo/scripts:ro
+      - ./services/job_runner:/repo/services/job_runner:ro
+      - ./data:/repo/data
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - TZ=UTC
+    networks:
+      - nexova-net
+
   uis:
     build:
       context: ./uis
