@@ -69,6 +69,26 @@ class PipelineStageError(RuntimeError):
         self.phase = phase
 
 
+# Excepciones de límite de tiempo de quien ejecuta el flow (el worker de Celery
+# lanza `SoftTimeLimitExceeded` una sola vez). Se comparan por nombre para no
+# hacer depender el pipeline de Celery.
+_TIME_LIMIT_EXCEPTIONS = frozenset({"SoftTimeLimitExceeded", "TimeLimitExceeded"})
+
+
+def retry_unless_time_limit(task: Any, task_run: Any, state: Any) -> bool:
+    """`retry_condition_fn` de las tasks con reintentos: nunca reintenta un timeout.
+
+    Si Prefect reintentara el `SoftTimeLimitExceeded`, el flow seguiría corriendo
+    hasta que el límite duro mate el proceso, sin pasar por los reintentos ni
+    por la DLQ de la tarea. Cualquier otro error se reintenta como siempre.
+    """
+
+    exc = getattr(state, "data", None)
+    if not isinstance(exc, BaseException):
+        return True
+    return not any(cls.__name__ in _TIME_LIMIT_EXCEPTIONS for cls in type(exc).__mro__)
+
+
 # =============================================================================
 # Tasks
 # =============================================================================
@@ -78,7 +98,12 @@ class PipelineStageError(RuntimeError):
 
 # retries=2: son dos sentencias cortas sobre `pipeline_runs`. Un corte breve del
 # pooler de Supabase se resuelve en segundos; si persiste, es mejor no arrancar.
-@task(name="open_run", retries=2, retry_delay_seconds=5)
+@task(
+    name="open_run",
+    retries=2,
+    retry_delay_seconds=5,
+    retry_condition_fn=retry_unless_time_limit,
+)
 def open_run(
     trigger: str, window_start: datetime, window_end: datetime, prefect_flow_run_id: str | None
 ) -> str | None:
@@ -86,7 +111,12 @@ def open_run(
     return runs.open_run(trigger, window_start, window_end, prefect_flow_run_id)
 
 
-@task(name="mark_phase", retries=2, retry_delay_seconds=5)
+@task(
+    name="mark_phase",
+    retries=2,
+    retry_delay_seconds=5,
+    retry_condition_fn=retry_unless_time_limit,
+)
 def mark_phase(run_id: str, phase: str, prefect_flow_run_id: str | None = None) -> None:
     """Checkpoint en `pipeline_runs.phase`: si la corrida muere, se sabe dónde."""
     fields: dict[str, Any] = {"phase": phase}
@@ -97,7 +127,12 @@ def mark_phase(run_id: str, phase: str, prefect_flow_run_id: str | None = None) 
 
 # retries=2: si el cierre falla, la fila queda `running` y bloquea las
 # siguientes corridas hasta que caduque (15 min), así que merece la pena insistir.
-@task(name="close_run", retries=2, retry_delay_seconds=5)
+@task(
+    name="close_run",
+    retries=2,
+    retry_delay_seconds=5,
+    retry_condition_fn=retry_unless_time_limit,
+)
 def close_run(
     run_id: str, status: str, counters: dict[str, int], error_message: str | None = None
 ) -> None:
@@ -105,7 +140,12 @@ def close_run(
     runs.close_run(run_id, status, error_message=error_message, counters=counters)
 
 
-@task(name="record_skipped_run", retries=2, retry_delay_seconds=5)
+@task(
+    name="record_skipped_run",
+    retries=2,
+    retry_delay_seconds=5,
+    retry_condition_fn=retry_unless_time_limit,
+)
 def record_skipped_run(
     trigger: str, window_start: datetime, window_end: datetime, prefect_flow_run_id: str | None
 ) -> str:
@@ -120,7 +160,12 @@ def record_skipped_run(
 # reinicio del pooler) duran segundos. Tres intentos cubren ~40 s de corte; más
 # allá es una caída real y conviene fallar y dejarlo en `pipeline_runs`. Es una
 # lectura, así que repetirla no tiene efectos.
-@task(name="extract_events", retries=3, retry_delay_seconds=[2, 10, 30])
+@task(
+    name="extract_events",
+    retries=3,
+    retry_delay_seconds=[2, 10, 30],
+    retry_condition_fn=retry_unless_time_limit,
+)
 def extract_events(window_start: datetime, window_end: datetime) -> pd.DataFrame:
     """Lee de `telemetry_events` los 4 tipos de evento de la ventana `[start, end)`."""
     return extract.extract_events(window_start, window_end)
@@ -214,7 +259,12 @@ def assemble_weekly_office_program_rows(
 # solo es seguro porque la carga es idempotente: upsert con reemplazo en una
 # única transacción, así que un intento a medias hace rollback y el siguiente
 # deja exactamente el mismo resultado.
-@task(name="load_weekly_performance", retries=3, retry_delay_seconds=[2, 10, 30])
+@task(
+    name="load_weekly_performance",
+    retries=3,
+    retry_delay_seconds=[2, 10, 30],
+    retry_condition_fn=retry_unless_time_limit,
+)
 def load_weekly_performance(rows: list[dict[str, Any]]) -> dict[str, int]:
     """Upsert en `reporting.weekly_office_program_performance`."""
     return load.load_weekly_performance(rows)
@@ -225,7 +275,12 @@ def load_weekly_performance(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 # retries=2: es una sola lectura de conteo; si aun así falla, el subflow
 # opcional falla y la corrida sigue.
-@task(name="count_session_events", retries=2, retry_delay_seconds=5)
+@task(
+    name="count_session_events",
+    retries=2,
+    retry_delay_seconds=5,
+    retry_condition_fn=retry_unless_time_limit,
+)
 def count_session_events(window_start: datetime, window_end: datetime) -> int:
     """Logins y vistas del backoffice en la ventana (solo lectura)."""
     return silence.count_session_events(window_start, window_end)
@@ -520,6 +575,12 @@ def run_weekly_performance_pipeline(
     return weekly_office_program_performance_flow(
         week_start=week_start, lookback_weeks=lookback_weeks, trigger=trigger, run_id=run_id
     )
+
+
+def fail_manual_run(run_id: str, error_message: str) -> bool:
+    """Libera el lock de una corrida que sigue `running` (no pisa una ya cerrada)."""
+
+    return runs.fail_run_if_running(run_id, error_message)
 
 
 def get_latest_run() -> dict[str, Any] | None:

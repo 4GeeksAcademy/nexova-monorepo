@@ -52,7 +52,8 @@ class PipelineRunRequest(BaseModel):
 
 
 class PipelineRunAccepted(BaseModel):
+    task_id: str
     run_id: str
-    status: Literal["running"]
+    status: Literal["queued"]
     window_start: datetime
     window_end: datetime

@@ -146,6 +146,22 @@ def close_run(
         )
 
 
+def fail_run_if_running(run_id: str, error_message: str) -> bool:
+    """Marca la corrida como `failed` solo si sigue `running`. `True` si la cerró.
+
+    A diferencia de `close_run`, no pisa una corrida que el flow ya cerró: lo usa
+    quien libera el lock desde fuera del flow (cola de tareas, encolado fallido).
+    """
+
+    with get_engine().begin() as connection:
+        result = connection.execute(
+            update(pipeline_runs)
+            .where(pipeline_runs.c.run_id == run_id, pipeline_runs.c.status == "running")
+            .values(status="failed", finished_at=func.now(), error_message=error_message[:2000])
+        )
+    return result.rowcount > 0
+
+
 def get_latest_run() -> dict[str, Any] | None:
     """Última corrida del pipeline (cualquier estado), o `None` si nunca corrió."""
 
