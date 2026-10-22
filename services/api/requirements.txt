@@ -1,5 +1,7 @@
 email-validator>=2.0
-fastapi>=0.111
+# FastAPI 0.155 eliminó `Body(min_items=...)`, que usa el servidor temporal de
+# Prefect 3.8 (el pipeline falla con TypeError). Igual que fija uv.lock (0.141).
+fastapi>=0.111,<0.155
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 tinydb>=4.8
@@ -14,3 +16,7 @@ sqlalchemy>=2.0,<2.1
 psycopg2-binary>=2.9.12
 pandas>=2.2
 prefect>=3
+# Cola de tareas asíncronas (#DEV-55): broker/backend Redis, worker y Flower.
+celery>=5.6.3
+redis>=8.1.0
+flower>=2.2.0

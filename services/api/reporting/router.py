@@ -8,6 +8,8 @@ que no se toca.
 
 Toda la lógica ETL se importa de `data/pipelines/` vía `pipeline_bridge`; aquí
 solo hay HTTP: autenticación, validación de entrada, caché y códigos de estado.
+El disparo manual no ejecuta el flow: lo encola y lo corre el worker de Celery
+(`tasks/reporting.py`).
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import logging
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 import cache
@@ -29,6 +31,7 @@ from reporting.schemas import (
     WeeklyPerformanceReport,
 )
 from security import get_current_user
+from tasks.reporting import run_weekly_performance_pipeline
 
 KPIS_CACHE_PREFIX = "reporting:"
 KPIS_CACHE_TTL_SECONDS = 60
@@ -50,23 +53,6 @@ def _require_monday(week_start: date | None) -> None:
             status_code=422,
             detail="week_start debe ser un lunes (inicio de semana ISO).",
         )
-
-
-def _run_pipeline_in_background(run_id: str, payload: PipelineRunRequest) -> None:
-    """Corre el flow con el lock ya tomado. Nunca lanza: el resultado queda en `pipeline_runs`."""
-
-    try:
-        pipeline_bridge.run_weekly_performance_pipeline(
-            week_start=payload.week_start,
-            lookback_weeks=payload.lookback_weeks,
-            trigger="manual",
-            run_id=run_id,
-        )
-    except Exception:
-        logger.exception("Manual pipeline run %s failed", run_id)
-    finally:
-        # Haya escrito o no, la próxima consulta de KPIs debe leer la tabla.
-        cache.invalidate(KPIS_CACHE_PREFIX)
 
 
 @router.get("/pipeline-runs/latest", response_model=PipelineRunRead)
@@ -92,14 +78,14 @@ def get_latest_pipeline_run(current_user: User = Depends(get_current_user)) -> d
     "/pipeline-runs", response_model=PipelineRunAccepted, status_code=status.HTTP_202_ACCEPTED
 )
 def trigger_pipeline_run(
-    background_tasks: BackgroundTasks,
     payload: PipelineRunRequest | None = None,
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Dispara una corrida manual del flow.
+    """Encola una corrida manual del flow y devuelve el `task_id` sin esperarla.
 
     El lock se toma aquí, antes de responder: si ya hay una corrida `running`
-    se devuelve `409` en vez de aceptar un trabajo que no va a ejecutarse.
+    se devuelve `409` en vez de aceptar un trabajo que no va a ejecutarse. El
+    estado de la tarea se consulta en `GET /tasks/{task_id}`.
 
     TODO: restringir a admins (Role.ADMIN) cuando exista un flujo para crearlos.
     """
@@ -118,8 +104,27 @@ def trigger_pipeline_run(
             detail="Ya hay una corrida del pipeline en curso.",
         )
 
-    background_tasks.add_task(_run_pipeline_in_background, run["run_id"], payload)
-    return {**run, "status": "running"}
+    # Mensaje ligero: solo identificadores y parámetros, nunca datos.
+    task_kwargs = {
+        "run_id": run["run_id"],
+        "week_start": payload.week_start.isoformat() if payload.week_start else None,
+        "lookback_weeks": payload.lookback_weeks,
+    }
+    try:
+        task = run_weekly_performance_pipeline.apply_async(kwargs=task_kwargs)
+    except Exception:
+        logger.exception("Could not enqueue pipeline run %s", run["run_id"])
+        # Sin tarea en la cola nadie cerraría la corrida: se libera el lock ya.
+        try:
+            pipeline_bridge.fail_manual_run(run["run_id"], "No se pudo encolar la tarea.")
+        except SQLAlchemyError:
+            logger.exception("Could not release pipeline run %s", run["run_id"])
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue unavailable.",
+        )
+
+    return {**run, "task_id": task.id, "status": "queued"}
 
 
 @router.get("/weekly-office-program-performance", response_model=WeeklyPerformanceReport)
@@ -131,7 +136,8 @@ def get_weekly_office_program_performance(
 ) -> dict[str, Any]:
     """KPIs por oficina y programa de una semana: lo que consume el dashboard.
 
-    El resultado se cachea 60 s y se invalida al terminar un disparo manual.
+    El resultado se cachea 60 s. La corrida manual termina en el worker (otro
+    proceso), que no puede invalidar esta caché: tras ella, hasta 60 s de retraso.
     """
 
     _require_monday(week_start)

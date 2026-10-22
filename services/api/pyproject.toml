@@ -8,8 +8,10 @@ version = "0.1.0"
 description = "Nexova central API service"
 requires-python = ">=3.11"
 dependencies = [
+    "celery>=5.6.3",
     "email-validator>=2.0",
-    "fastapi>=0.111",
+    "fastapi>=0.111,<0.155",
+    "flower>=2.2.0",
     "libpass[bcrypt]>=1.9.3",
     "pandas>=2.2",
     "prefect>=3",
@@ -17,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "python-jose[cryptography]>=3.5.0",
     "python-multipart>=0.0.9",
+    "redis>=8.1.0",
     "resend>=2.0.0",
     "sqlalchemy>=2.0,<2.1",
     "sqlmodel>=0.0.42",
@@ -30,7 +33,7 @@ seed-inventory = "seed_inventory:main"
 
 [tool.setuptools]
 py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets", "telemetry_store"]
-packages = ["telemetry", "reporting"]
+packages = ["telemetry", "reporting", "tasks"]
 
 [dependency-groups]
 dev = [

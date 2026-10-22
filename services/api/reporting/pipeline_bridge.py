@@ -24,6 +24,7 @@ if str(PIPELINES_PATH) not in sys.path:
     sys.path.append(str(PIPELINES_PATH))
 
 from pipeline import (  # noqa: E402
+    fail_manual_run,
     get_latest_run,
     query_weekly_kpis,
     run_weekly_performance_pipeline,
@@ -31,6 +32,7 @@ from pipeline import (  # noqa: E402
 )
 
 __all__ = [
+    "fail_manual_run",
     "get_latest_run",
     "query_weekly_kpis",
     "run_weekly_performance_pipeline",

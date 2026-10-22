@@ -44,6 +44,7 @@ from reporting import router as reporting
 from routers import inventory
 from routes import auth, profiles, suppliers, telemetry, users
 from routes.telemetry import log_telemetry_event
+from tasks import router as tasks
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api.timing")
@@ -205,6 +206,7 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(telemetry.router)
 app.include_router(reporting.router)
+app.include_router(tasks.router)
 
 
 @app.get("/api/health", response_model=HealthResponse)

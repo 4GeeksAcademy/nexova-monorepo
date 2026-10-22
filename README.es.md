@@ -30,6 +30,41 @@ Este repositorio es la **plantilla de inicio** para los proyectos transversales.
 
 ---
 
+## Worker de tareas asíncronas (Celery + Redis)
+
+Las operaciones pesadas no corren dentro de FastAPI: la API las encola en Redis y responde `202` con un `task_id`, y un **worker de Celery** (proceso y contenedor aparte) las ejecuta. Hoy se encola la corrida manual del pipeline semanal (`POST /reporting/pipeline-runs`). El código está en [`services/api/tasks/`](./services/api/tasks/).
+
+| Servicio (`docker-compose.yml`) | Qué hace                                                        |
+| ------------------------------- | --------------------------------------------------------------- |
+| `redis`                         | Broker y result backend (`noeviction`, AOF), puerto `6379`       |
+| `worker`                        | `celery -A tasks.celery_app worker` con la misma imagen que la API |
+| `flower`                        | Monitor de la cola en <http://localhost:5555> (solo desarrollo)  |
+
+**Levantarlo** (con el resto del stack, o solo la cola):
+
+```bash
+docker compose up -d --build              # todo
+docker compose up -d redis worker flower  # solo la cola y su monitor
+```
+
+**Detenerlo:** `docker compose stop worker`. Las tareas que estén en la cola se quedan en Redis y se procesan al volver a levantarlo; una tarea a medias vuelve a la cola, porque el ACK se envía solo al terminar. Parar la API (`docker compose stop api`) no para el worker.
+
+**Logs:** `docker compose logs -f worker`. Cada intento deja `task_id`, intento, estado y duración; los fallos añaden el traceback.
+
+**En local, sin Docker** (con un Redis accesible y `REDIS_URL` + `DATABASE_URL` en `services/api/.env`):
+
+```bash
+cd services/api
+uv run celery -A tasks.celery_app worker -l INFO -E
+uv run celery --broker=redis://localhost:6379/0 flower --port=5555   # opcional
+```
+
+**Estado de una tarea:** `GET /tasks/{task_id}` → `pending`, `started`, `retry`, `success` o `failure`, con `result` o `error`.
+
+**Reintentos y DLQ:** hasta 3 reintentos con espera creciente (15 s, 30 s, 60 s). Si el último intento también falla, la tarea queda registrada en `public.task_dead_letters`. Antes hay que aplicar a mano la migración [`005_task_dead_letters.sql`](./services/api/migrations/005_task_dead_letters.sql) en Supabase. Cada tarea tiene un timeout (`TASK_SOFT_TIME_LIMIT`, por defecto 540 s). Para ver la DLQ en una demo, levanta el worker con `TASK_SOFT_TIME_LIMIT=1 docker compose up -d --force-recreate worker`: cada intento supera el límite y la tarea acaba en la DLQ. Para volver a la normalidad, recrea el worker sin la variable.
+
+---
+
 ## Cómo entender este monorepo
 
 Estás construyendo **una sola empresa** a lo largo de muchos hitos y proyectos. Cada carpeta de primer nivel tiene **una responsabilidad clara** — como en un repositorio real de un equipo de ingeniería.

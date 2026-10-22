@@ -22,6 +22,70 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - TELEMETRY_SCHEMAS_PATH=/docs/telemetry/event-schemas.json
       - PIPELINES_PATH=/data/pipelines
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nexova-net
+
+  # Broker y result backend de Celery (#DEV-55). `noeviction`: con la memoria
+  # llena Redis rechaza escrituras en vez de borrar mensajes de la cola; AOF:
+  # la cola sobrevive a un reinicio del contenedor.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nexova-net
+
+  # Worker de Celery: misma imagen y código que la API, pero proceso y
+  # contenedor propios. No depende de `api`: parar la API no lo para.
+  worker:
+    build:
+      context: ./services
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "tasks.celery_app", "worker", "-l", "INFO", "-E", "--concurrency=2"]
+    init: true
+    volumes:
+      - ./services/api:/app
+      - ./data/pipelines:/data/pipelines:ro
+      - ./data/eval:/data/eval
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - PIPELINES_PATH=/data/pipelines
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Timeout blando por tarea; `TASK_SOFT_TIME_LIMIT=1` provoca la demo de la DLQ.
+      - TASK_SOFT_TIME_LIMIT=${TASK_SOFT_TIME_LIMIT:-540}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nexova-net
+
+  # Monitor de la cola (solo desarrollo): http://localhost:5555
+  flower:
+    build:
+      context: ./services
+      dockerfile: Dockerfile
+    # Solo necesita el broker (lee los eventos del worker): sin `-A` no importa
+    # las tareas ni, con ellas, el pipeline.
+    command: ["sh", "-c", "exec celery --broker=\"$$REDIS_URL\" flower --port=5555"]
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - nexova-net
 
@@ -65,6 +129,9 @@ services:
       - api
     networks:
       - nexova-net
+
+volumes:
+  redis-data:
 
 networks:
   nexova-net:
