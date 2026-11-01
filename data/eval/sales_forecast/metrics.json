@@ -1,0 +1,202 @@
+{
+  "split": {
+    "train": {
+      "start": "2016-01-01",
+      "end": "2023-12-01",
+      "rows": 96
+    },
+    "test": {
+      "start": "2024-01-01",
+      "end": "2025-12-01",
+      "rows": 24
+    },
+    "train_rows_with_features": {
+      "start": "2018-01-01",
+      "end": "2023-12-01",
+      "rows": 72
+    }
+  },
+  "model": {
+    "algorithm": "RandomForestRegressor",
+    "random_state": 42,
+    "target": "yoy_ratio = revenue_t / revenue_{t-12}",
+    "horizon_months": 12,
+    "best_params": {
+      "n_estimators": 500,
+      "max_depth": 5,
+      "min_samples_leaf": 6
+    },
+    "cv_mae_usd": 31160.64,
+    "cv_splits": 4,
+    "features": [
+      "month_of_year",
+      "quarter",
+      "is_august",
+      "is_jan_feb",
+      "lag_12",
+      "lag_13",
+      "lag_24",
+      "yoy_ratio_lag12",
+      "roll_mean_12_lag12",
+      "roll_std_12_lag12",
+      "seasonal_index_lag12",
+      "contracts_lag12",
+      "acv_lag12"
+    ]
+  },
+  "test_metrics": {
+    "random_forest": {
+      "mse_usd2": 961675989.9,
+      "rmse_usd": 31010.90115,
+      "rmse_pct_of_mean_revenue": 3.23244623,
+      "mse_over_mean_revenue_squared_pct": 0.10448709,
+      "mae_usd": 26916.80617,
+      "mape_pct": 2.84670676,
+      "r2": 0.8710778,
+      "gini_normalized": 0.9067766,
+      "mean_revenue_usd": 959363.2475
+    },
+    "xgboost_reference": {
+      "mse_usd2": 1264764409.0,
+      "rmse_usd": 35563.52638,
+      "rmse_pct_of_mean_revenue": 3.70699279,
+      "mse_over_mean_revenue_squared_pct": 0.13741796,
+      "mae_usd": 28782.03869,
+      "mape_pct": 3.08272356,
+      "r2": 0.83044579,
+      "gini_normalized": 0.88683101,
+      "mean_revenue_usd": 959363.2475
+    },
+    "seasonal_naive": {
+      "mse_usd2": 3190168976.0,
+      "rmse_usd": 56481.58086,
+      "rmse_pct_of_mean_revenue": 5.88740303,
+      "mse_over_mean_revenue_squared_pct": 0.34661514,
+      "mae_usd": 47589.64917,
+      "mape_pct": 4.9753323,
+      "r2": 0.57232623,
+      "gini_normalized": 0.7967637,
+      "mean_revenue_usd": 959363.2475
+    },
+    "seasonal_naive_with_growth": {
+      "mse_usd2": 1691510729.0,
+      "rmse_usd": 41127.97988,
+      "rmse_pct_of_mean_revenue": 4.28700807,
+      "mse_over_mean_revenue_squared_pct": 0.18378438,
+      "mae_usd": 34135.44754,
+      "mape_pct": 3.58940023,
+      "r2": 0.77323622,
+      "gini_normalized": 0.7967637,
+      "mean_revenue_usd": 959363.2475
+    }
+  },
+  "psi": {
+    "avg_contract_value_usd": {
+      "value": 0.47998663,
+      "label": "cambio significativo",
+      "permutation_p_value": 0.08945527
+    },
+    "target_yoy_ratio": {
+      "value": 0.0679043,
+      "label": "estable",
+      "permutation_p_value": 0.88505747
+    },
+    "note": "El CSV solo trae la fila consolidated: avg_contract_value_usd se usa como aproximación al mix de líneas."
+  },
+  "k2": {
+    "test_residuals_usd": {
+      "statistic": 1.78193625,
+      "p_value": 0.41025838,
+      "n": 24,
+      "skewness": -0.01234445,
+      "excess_kurtosis": -1.00940689,
+      "normal_at_5pct": true
+    },
+    "cv_out_of_fold_residuals_ratio": {
+      "statistic": 0.17758368,
+      "p_value": 0.91503603,
+      "n": 48,
+      "skewness": 0.12879923,
+      "excess_kurtosis": -0.18232925,
+      "normal_at_5pct": true
+    }
+  },
+  "band": {
+    "method": "normal (±z·σ)",
+    "nominal_coverage_pct": 95.0,
+    "test_coverage_pct": 100.0,
+    "ratio_offsets": [
+      -0.0940892,
+      0.0940892
+    ],
+    "mean_width_pct_of_prediction": 18.18277498,
+    "tree_spread_test_coverage_pct": 83.33333333
+  },
+  "feature_importance": [
+    {
+      "feature": "yoy_ratio_lag12",
+      "importance": 0.01813721,
+      "std": 0.00388385
+    },
+    {
+      "feature": "seasonal_index_lag12",
+      "importance": 0.00465619,
+      "std": 0.00104072
+    },
+    {
+      "feature": "lag_24",
+      "importance": 0.0015931,
+      "std": 0.00047665
+    },
+    {
+      "feature": "roll_std_12_lag12",
+      "importance": 0.00124973,
+      "std": 0.0003716
+    },
+    {
+      "feature": "acv_lag12",
+      "importance": 0.00076927,
+      "std": 0.00027585
+    },
+    {
+      "feature": "contracts_lag12",
+      "importance": 0.00069251,
+      "std": 0.00015991
+    },
+    {
+      "feature": "lag_13",
+      "importance": 0.00050369,
+      "std": 0.00020232
+    },
+    {
+      "feature": "roll_mean_12_lag12",
+      "importance": 0.00045708,
+      "std": 0.0001664
+    },
+    {
+      "feature": "month_of_year",
+      "importance": 0.0003186,
+      "std": 6.612e-05
+    },
+    {
+      "feature": "lag_12",
+      "importance": 0.00023197,
+      "std": 3.834e-05
+    },
+    {
+      "feature": "quarter",
+      "importance": 6.938e-05,
+      "std": 3.238e-05
+    },
+    {
+      "feature": "is_jan_feb",
+      "importance": 2.3e-06,
+      "std": 8.1e-07
+    },
+    {
+      "feature": "is_august",
+      "importance": 0.0,
+      "std": 0.0
+    }
+  ]
+}

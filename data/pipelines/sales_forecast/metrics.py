@@ -54,6 +54,31 @@ def psi(expected: object, actual: object, bins: int = PSI_BINS) -> float:
     return float(np.sum((q - p) * np.log(q / p)))
 
 
+def psi_permutation_p_value(
+    expected: object,
+    actual: object,
+    n_permutations: int = 2000,
+    random_state: int = 42,
+) -> float:
+    """Probabilidad de obtener un PSI igual o mayor si train y test vinieran de la misma distribución.
+
+    Con muestras pequeñas (24 meses de test) el PSI tiene un suelo alto solo por
+    ruido de muestreo, así que los umbrales 0,10/0,25 conviene leerlos junto a
+    este p-valor: se barajan las etiquetas train/test y se recalcula el PSI.
+    """
+    train = _as_array(expected)
+    test = _as_array(actual)
+    observed = psi(train, test)
+    pooled = np.concatenate([train, test])
+    rng = np.random.default_rng(random_state)
+    hits = 0
+    for _ in range(n_permutations):
+        shuffled = rng.permutation(pooled)
+        if psi(shuffled[: len(train)], shuffled[len(train) :]) >= observed:
+            hits += 1
+    return float((hits + 1) / (n_permutations + 1))
+
+
 def psi_label(value: float) -> str:
     if value < PSI_STABLE:
         return "estable"
