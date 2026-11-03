@@ -51,6 +51,33 @@ def plot_forecast(
     plt.close(fig)
 
 
+def plot_learning_curve(curve: dict, metric: str, path: Path) -> None:
+    """Curva de aprendizaje: error de train y de validación (media ± std entre pliegues) vs. tamaño del train.
+
+    `metric` es "rmse" o "mae"; `curve` es la salida de `evaluation.learning_curve_usd`.
+    """
+    sizes = np.asarray(curve["train_sizes"])
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    for key, color, label in (
+        (f"train_{metric}", "#e37400", "Entrenamiento"),
+        (f"val_{metric}", "#1a73e8", "Validación (CV temporal)"),
+    ):
+        mean, std = np.asarray(curve[key]["mean"]), np.asarray(curve[key]["std"])
+        ax.fill_between(sizes, mean - std, mean + std, color=color, alpha=0.15)
+        ax.plot(sizes, mean, color=color, lw=2, marker="o", ms=5, label=label)
+
+    ax.xaxis.set_major_locator(plt.MultipleLocator(6))
+    ax.yaxis.set_major_formatter(_USD)
+    ax.set_xlabel("Meses de entrenamiento (ventana expansiva)")
+    ax.set_ylabel(f"{metric.upper()} (USD)")
+    ax.set_title(f"Nexova: curva de aprendizaje del Random Forest ({metric.upper()}, 5 pliegues temporales)")
+    ax.grid(alpha=0.25)
+    ax.legend(loc="upper right", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def plot_residuals(test_residuals_usd: np.ndarray, oof_ratio_residuals: np.ndarray, path: Path) -> None:
     """Histograma de los residuos del test y gráfico Q-Q de los residuos fuera de muestra."""
     fig, (hist_ax, qq_ax) = plt.subplots(1, 2, figsize=(11, 4.2))
