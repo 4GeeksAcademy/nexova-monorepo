@@ -107,5 +107,7 @@ Las dependencias de ML (`scikit-learn`, `xgboost`, `matplotlib`, `scipy`) están
 | `model.py` | baselines, Random Forest con CV temporal, XGBoost de referencia e importancias |
 | `intervals.py` | banda calibrada con K² |
 | `metrics.py` | MSE, PSI (+ permutación), Gini normalizado, K², MAE/MAPE/R² y cobertura |
-| `plot.py` | `forecast_test.png` y `residuals_qq.png` |
+| `evaluation.py` | CV temporal de 5 pliegues, curva de aprendizaje, comprobación de fuga y diagnóstico de ajuste |
+| `plot.py` | `forecast_test.png`, `residuals_qq.png` y `learning_curve.png` |
 | `scripts/train_sales_forecast.py` | CLI que encadena todo |
+| `scripts/evaluate_sales_forecast.py` | CLI de la evaluación: escribe `data/eval/cv_metrics.json` y `learning_curve.png` (el informe es `data/eval/evaluation_report.md`) |
