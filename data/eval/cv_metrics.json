@@ -1,0 +1,309 @@
+{
+  "setup": {
+    "model": "RandomForestRegressor",
+    "random_state": 42,
+    "best_params": {
+      "n_estimators": 500,
+      "max_depth": 5,
+      "min_samples_leaf": 6
+    },
+    "train_period": [
+      "2016-01",
+      "2023-12"
+    ],
+    "train_rows_with_features": 72,
+    "cv": "TimeSeriesSplit(n_splits=5, test_size=6), ventana expansiva, sin barajar",
+    "test_untouched": [
+      "2024-01",
+      "2025-12"
+    ],
+    "mean_train_revenue_usd": 813551.4296,
+    "errors_in": "USD de ingreso reconstruido (yoy_ratio * lag_12)"
+  },
+  "chronological_order_verified": true,
+  "fold_feature_leakage_check": [
+    {
+      "fold": 1,
+      "leakage": false
+    },
+    {
+      "fold": 2,
+      "leakage": false
+    },
+    {
+      "fold": 3,
+      "leakage": false
+    },
+    {
+      "fold": 4,
+      "leakage": false
+    },
+    {
+      "fold": 5,
+      "leakage": false
+    }
+  ],
+  "cv": {
+    "folds": [
+      {
+        "fold": 1,
+        "train_months": [
+          "2018-01",
+          "2021-06"
+        ],
+        "val_months": [
+          "2021-07",
+          "2021-12"
+        ],
+        "train_rows": 42,
+        "val_rows": 6,
+        "val_mean_revenue_usd": 810446.7117,
+        "train": {
+          "mae_usd": 17793.38635,
+          "rmse_usd": 21457.15519
+        },
+        "validation": {
+          "mae_usd": 36138.39039,
+          "rmse_usd": 45279.59859
+        },
+        "naive_validation": {
+          "mae_usd": 35921.8225,
+          "rmse_usd": 47039.98318
+        }
+      },
+      {
+        "fold": 2,
+        "train_months": [
+          "2018-01",
+          "2021-12"
+        ],
+        "val_months": [
+          "2022-01",
+          "2022-06"
+        ],
+        "train_rows": 48,
+        "val_rows": 6,
+        "val_mean_revenue_usd": 886832.51,
+        "train": {
+          "mae_usd": 18351.2354,
+          "rmse_usd": 22714.64894
+        },
+        "validation": {
+          "mae_usd": 21920.08135,
+          "rmse_usd": 23110.69412
+        },
+        "naive_validation": {
+          "mae_usd": 42994.7649,
+          "rmse_usd": 46500.41043
+        }
+      },
+      {
+        "fold": 3,
+        "train_months": [
+          "2018-01",
+          "2022-06"
+        ],
+        "val_months": [
+          "2022-07",
+          "2022-12"
+        ],
+        "train_rows": 54,
+        "val_rows": 6,
+        "val_mean_revenue_usd": 806459.7083,
+        "train": {
+          "mae_usd": 17370.32597,
+          "rmse_usd": 21615.62096
+        },
+        "validation": {
+          "mae_usd": 40548.77239,
+          "rmse_usd": 44824.31169
+        },
+        "naive_validation": {
+          "mae_usd": 38227.07999,
+          "rmse_usd": 44930.96187
+        }
+      },
+      {
+        "fold": 4,
+        "train_months": [
+          "2018-01",
+          "2022-12"
+        ],
+        "val_months": [
+          "2023-01",
+          "2023-06"
+        ],
+        "train_rows": 60,
+        "val_rows": 6,
+        "val_mean_revenue_usd": 950995.5517,
+        "train": {
+          "mae_usd": 18316.02894,
+          "rmse_usd": 22932.00322
+        },
+        "validation": {
+          "mae_usd": 29932.78898,
+          "rmse_usd": 33934.26438
+        },
+        "naive_validation": {
+          "mae_usd": 33930.76697,
+          "rmse_usd": 40150.68006
+        }
+      },
+      {
+        "fold": 5,
+        "train_months": [
+          "2018-01",
+          "2023-06"
+        ],
+        "val_months": [
+          "2023-07",
+          "2023-12"
+        ],
+        "train_rows": 66,
+        "val_rows": 6,
+        "val_mean_revenue_usd": 864648.7883,
+        "train": {
+          "mae_usd": 18846.14586,
+          "rmse_usd": 23477.83475
+        },
+        "validation": {
+          "mae_usd": 38946.79686,
+          "rmse_usd": 43722.97618
+        },
+        "naive_validation": {
+          "mae_usd": 53559.67055,
+          "rmse_usd": 55964.44509
+        }
+      }
+    ],
+    "summary": {
+      "train_mae_usd": {
+        "mean": 18135.4245,
+        "std": 567.1602525
+      },
+      "train_rmse_usd": {
+        "mean": 22439.45261,
+        "std": 871.8060872
+      },
+      "validation_mae_usd": {
+        "mean": 33497.36599,
+        "std": 7634.352753
+      },
+      "validation_rmse_usd": {
+        "mean": 38174.36899,
+        "std": 9622.705636
+      },
+      "naive_validation_mae_usd": {
+        "mean": 40926.82098,
+        "std": 7828.611999
+      },
+      "naive_validation_rmse_usd": {
+        "mean": 46917.29612,
+        "std": 5739.607281
+      }
+    }
+  },
+  "learning_curve": {
+    "train_sizes": [
+      12,
+      18,
+      24,
+      30,
+      36,
+      42
+    ],
+    "n_folds": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "train_mae": {
+      "mean": [
+        15598.29958,
+        23184.67481,
+        21367.68772,
+        20290.73506,
+        19258.61766,
+        17793.38635
+      ],
+      "std": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "train_rmse": {
+      "mean": [
+        18346.58776,
+        28690.21048,
+        25230.93634,
+        25157.89613,
+        23384.05738,
+        21457.15519
+      ],
+      "std": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "val_mae": {
+      "mean": [
+        44603.76445,
+        34875.17308,
+        31343.28576,
+        30497.12305,
+        33028.9155,
+        30772.47581
+      ],
+      "std": [
+        17799.24021,
+        7690.157471,
+        6029.913288,
+        9474.838567,
+        10176.90228,
+        9758.087336
+      ]
+    },
+    "val_rmse": {
+      "mean": [
+        52500.53586,
+        39274.40091,
+        35322.78235,
+        34713.40743,
+        37234.1268,
+        35520.66268
+      ],
+      "std": [
+        17737.4,
+        7142.643641,
+        7079.362334,
+        9588.049571,
+        9853.925853,
+        10538.90736
+      ]
+    }
+  },
+  "diagnosis": {
+    "suggested_label": "bien ajustado",
+    "gap_ratio_val_over_train_rmse": 1.70121659,
+    "train_rmse_vs_naive_validation_rmse": 0.47827676,
+    "validation_rmse_vs_naive_validation_rmse": 0.81365237,
+    "val_rmse_change_last_two_steps_pct": 2.32548546,
+    "gap_still_open_at_full_size": true,
+    "thresholds": {
+      "underfit_train_vs_naive": 0.8,
+      "overfit_gap_ratio": 2.0,
+      "convergence_tolerance": 0.05
+    }
+  }
+}
