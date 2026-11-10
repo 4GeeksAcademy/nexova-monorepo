@@ -39,6 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import incidents
 from database import create_db_and_tables
+from knowledge import router as knowledge
 from models import HealthResponse
 from reporting import router as reporting
 from routers import inventory
@@ -206,6 +207,7 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(telemetry.router)
 app.include_router(reporting.router)
+app.include_router(knowledge.router)
 app.include_router(tasks.router)
 
 
