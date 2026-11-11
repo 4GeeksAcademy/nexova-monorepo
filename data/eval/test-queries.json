@@ -1,0 +1,18 @@
+{
+  "description": "Preguntas de prueba del RAG de Nexova. `expected` identifica el chunk correcto (source_document + section). Las entradas con `expected: null` son preguntas fuera de la base: no cuentan para Recall@3, sirven para validar min_score.",
+  "queries": [
+    {"question": "¿Qué incluye la línea de headhunting ejecutivo?", "expected": {"source_document": "service-lines", "section": "Headhunting ejecutivo y de mandos medios"}},
+    {"question": "¿Cuál es el tamaño mínimo de equipo en outsourcing de soporte al cliente?", "expected": {"source_document": "service-lines", "section": "Outsourcing de equipos de soporte al cliente"}},
+    {"question": "¿Cuánto cuesta un programa de formación de 8 semanas?", "expected": {"source_document": "pricing-model", "section": "Formación corporativa"}},
+    {"question": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?", "expected": {"source_document": "pricing-model", "section": "Headhunting ejecutivo"}},
+    {"question": "¿Cuánto cuesta mensualmente un agente de soporte y cuál es el contrato mínimo?", "expected": {"source_document": "pricing-model", "section": "Outsourcing de soporte al cliente"}},
+    {"question": "¿Cuántas semanas tarda una búsqueda de un perfil ejecutivo?", "expected": {"source_document": "hiring-process-sla", "section": "Tiempos de entrega comprometidos por tipo de búsqueda"}},
+    {"question": "¿Qué pasa si a las 4 semanas no hay ningún candidato calificado en una búsqueda ejecutiva?", "expected": {"source_document": "hiring-process-sla", "section": "Si a las 4 semanas de una búsqueda ejecutiva no hay al menos un candidato calif…"}},
+    {"question": "¿Garantizan los plazos de entrega si el candidato debe vivir en una ciudad específica?", "expected": {"source_document": "hiring-process-sla", "section": "Nexova no garantiza tiempos de entrega para búsquedas con requisitos de ubicaci…"}},
+    {"question": "El 22% me parece caro comparado con otras firmas, ¿qué le respondo?", "objection": true, "expected": {"source_document": "objection-handling", "section": "22% me parece caro comparado con otras firmas"}},
+    {"question": "¿Qué pasa si no estoy conforme con la terna presentada?", "objection": true, "expected": {"source_document": "objection-handling", "section": "¿Qué pasa si no estoy conforme con la terna presentada"}},
+    {"question": "¿Puedo pagar todo al final, cuando el candidato empiece a trabajar?", "objection": true, "expected": {"source_document": "objection-handling", "section": "¿Puedo pagar todo al final, cuando el candidato empiece a trabajar"}},
+    {"question": "¿Pueden hacerme un descuento del 22% al 15%?", "expected": {"source_document": "objection-handling", "section": "22% me parece caro comparado con otras firmas"}},
+    {"question": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?", "expected": null}
+  ]
+}

@@ -10,6 +10,8 @@ services:
       - ./packages/incidents-analyzer:/packages/incidents-analyzer:ro
       - ./docs/telemetry:/docs/telemetry:ro
       - ./data/pipelines:/data/pipelines:ro
+      - ./data/process:/data/process:ro
+      - ./docs/company-knowledge-base:/docs/company-knowledge-base:ro
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM}
@@ -23,9 +25,30 @@ services:
       - TELEMETRY_SCHEMAS_PATH=/docs/telemetry/event-schemas.json
       - PIPELINES_PATH=/data/pipelines
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # RAG (Hito 7): Qdrant + modelos de 4Geeks (embeddings y generación separados).
+      - PROCESS_PATH=/data/process
+      - KNOWLEDGE_BASE_PATH=/docs/company-knowledge-base
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+      - GENERATION_MODEL=${GENERATION_MODEL}
+      - RAG_MIN_SCORE=${RAG_MIN_SCORE:-0.30}
     depends_on:
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_started
+    networks:
+      - nexova-net
+
+  # Base de conocimiento vectorial del RAG (colección `nexova_knowledge`).
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
     networks:
       - nexova-net
 
@@ -132,6 +155,7 @@ services:
 
 volumes:
   redis-data:
+  qdrant-data:
 
 networks:
   nexova-net:
