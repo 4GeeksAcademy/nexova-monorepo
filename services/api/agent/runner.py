@@ -1,7 +1,8 @@
 """
 Punto de entrada único del agente: ejecuta una corrida del grafo compilado,
 con checkpoints (`thread_id = run_id`) y trace JSON persistido, incluso si
-algún nodo falla.
+algún nodo falla. `auth_token` (el JWT de quien llama) se pone a disposición de
+las tools sin pasar por el estado del grafo.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.graph import get_agent_graph
+from agent.tools.transport import forwarded_credentials
 from agent.tracing import start_run
 
 
@@ -28,10 +30,15 @@ def run_config(run_id: str) -> dict:
     return {"configurable": {"thread_id": run_id}}
 
 
-def run_agent(question: str, *, graph: CompiledStateGraph | None = None) -> AgentRunResult:
+def run_agent(
+    question: str,
+    *,
+    graph: CompiledStateGraph | None = None,
+    auth_token: str | None = None,
+) -> AgentRunResult:
     compiled = graph or get_agent_graph()
     run_id = str(uuid.uuid4())
-    with start_run(run_id, question) as tracer:
+    with start_run(run_id, question) as tracer, forwarded_credentials(auth_token):
         try:
             state = compiled.invoke({"question": question}, config=run_config(run_id))
         except Exception as exc:
@@ -43,5 +50,7 @@ def run_agent(question: str, *, graph: CompiledStateGraph | None = None) -> Agen
             status="rejected" if error else "completed",
             final_answer=answer,
             error=error,
+            route=state.get("route"),
+            sources_used=state.get("sources_used"),
         )
     return AgentRunResult(run_id=run_id, answer=answer, error=error, trace_path=trace_path)

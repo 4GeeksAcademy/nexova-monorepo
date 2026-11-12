@@ -1,9 +1,18 @@
 """
 Grafo del agente: nodos, aristas condicionales, compilación y checkpointer.
 
-    START → receive_question ─┬─(pregunta vacía)──→ reject ─────────→ END
-                              └─(pregunta válida)─→ retrieve ─┬─(sin contexto)─→ no_information → END
-                                                              └─(con contexto)─→ generate ───────→ END
+    START → receive_question ─┬─(pregunta vacía)→ reject → END
+                              └→ route_question ─→ [lookup_tickets] → [lookup_inventory] → [retrieve] ─┬→ generate       → END
+                                                                                                       ├→ tool_fallback  → END
+                                                                                                       └→ no_information → END
+
+`route_question` decide qué fuentes necesita la pregunta; después de él y de
+cada fuente, `next_step` salta a la siguiente fuente pendiente (datos en vivo
+primero, RAG después) o, si no queda ninguna, al nodo de respuesta:
+
+- `generate` si alguna fuente aportó datos (chunks del RAG o una tool con `ok`);
+- `tool_fallback` si no hay datos y alguna tool falló o no encontró el recurso;
+- `no_information` si no hay datos y ninguna tool falló.
 
 La compilación es explícita (`compile_graph`) y falla con `AgentGraphBuildError`
 ante un error estructural: los que detecta LangGraph (arista hacia un nodo
@@ -26,7 +35,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent import nodes
-from agent.nodes import GenerateFn, RetrieveFn
+from agent.nodes import ClassifyFn, GenerateFn, InventoryToolFn, RetrieveFn, TicketToolFn
+from agent.routing import classify_question
+from agent.tools.inventory import lookup_inventory
+from agent.tools.tickets import lookup_tickets
 from agent.state import AgentState
 from agent.tracing import traced
 
@@ -39,11 +51,26 @@ class AgentGraphBuildError(RuntimeError):
 
 
 def route_after_receive(state: AgentState) -> str:
-    return nodes.REJECT if state.get("error") else nodes.RETRIEVE
+    return nodes.REJECT if state.get("error") else nodes.ROUTE_QUESTION
 
 
-def route_after_retrieve(state: AgentState) -> str:
-    return nodes.GENERATE if state.get("context") else nodes.NO_INFORMATION
+def next_step(state: AgentState) -> str:
+    """Siguiente fuente pendiente según `route`, o el nodo de respuesta."""
+    route = state.get("route", {})
+    used = state.get("sources_used", [])
+    for source, node in nodes.SOURCE_NODES.items():
+        if route.get(source) and source not in used:
+            return node
+
+    tool_results = state.get("tool_results", [])
+    if state.get("context") or any(r["status"] == "ok" for r in tool_results):
+        return nodes.GENERATE
+    if tool_results:  # todas las tools fallaron o no encontraron nada, y el RAG no aportó
+        return nodes.TOOL_FALLBACK
+    return nodes.NO_INFORMATION
+
+
+_ANSWER_NODES = [nodes.GENERATE, nodes.TOOL_FALLBACK, nodes.NO_INFORMATION]
 
 
 def sqlite_checkpointer(path: str | Path | None = None) -> SqliteSaver:
@@ -101,9 +128,16 @@ def build_graph(
     *,
     retrieve_fn: RetrieveFn | None = None,
     generate_fn: GenerateFn | None = None,
+    classify_fn: ClassifyFn | None = None,
+    ticket_tool: TicketToolFn | None = None,
+    inventory_tool: InventoryToolFn | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
-    """Construye y compila el grafo. Por defecto usa `retrieve`/`generate_answer` del RAG."""
+    """Construye y compila el grafo.
+
+    Por defecto usa `retrieve`/`generate_answer` del RAG, el enrutador LLM con
+    reglas de respaldo y las tools HTTP reales (incidentes e inventario).
+    """
     if retrieve_fn is None or generate_fn is None:
         from knowledge.pipeline_bridge import generate_answer, retrieve
 
@@ -112,8 +146,12 @@ def build_graph(
 
     node_fns: dict[str, Any] = {
         nodes.RECEIVE_QUESTION: nodes.receive_question,
+        nodes.ROUTE_QUESTION: nodes.make_route_node(classify_fn or classify_question),
+        nodes.LOOKUP_TICKETS: nodes.make_tickets_node(ticket_tool or lookup_tickets),
+        nodes.LOOKUP_INVENTORY: nodes.make_inventory_node(inventory_tool or lookup_inventory),
         nodes.RETRIEVE: nodes.make_retrieve_node(retrieve_fn),
         nodes.GENERATE: nodes.make_generate_node(generate_fn),
+        nodes.TOOL_FALLBACK: nodes.tool_fallback,
         nodes.NO_INFORMATION: nodes.no_information,
         nodes.REJECT: nodes.reject,
     }
@@ -124,14 +162,21 @@ def build_graph(
 
     builder.add_edge(START, nodes.RECEIVE_QUESTION)
     builder.add_conditional_edges(
-        nodes.RECEIVE_QUESTION, route_after_receive, [nodes.RETRIEVE, nodes.REJECT]
+        nodes.RECEIVE_QUESTION, route_after_receive, [nodes.ROUTE_QUESTION, nodes.REJECT]
+    )
+    # Cada nodo solo puede avanzar hacia fuentes posteriores o hacia la respuesta.
+    builder.add_conditional_edges(
+        nodes.ROUTE_QUESTION,
+        next_step,
+        [nodes.LOOKUP_TICKETS, nodes.LOOKUP_INVENTORY, nodes.RETRIEVE, *_ANSWER_NODES],
     )
     builder.add_conditional_edges(
-        nodes.RETRIEVE, route_after_retrieve, [nodes.GENERATE, nodes.NO_INFORMATION]
+        nodes.LOOKUP_TICKETS, next_step, [nodes.LOOKUP_INVENTORY, nodes.RETRIEVE, *_ANSWER_NODES]
     )
-    builder.add_edge(nodes.GENERATE, END)
-    builder.add_edge(nodes.NO_INFORMATION, END)
-    builder.add_edge(nodes.REJECT, END)
+    builder.add_conditional_edges(nodes.LOOKUP_INVENTORY, next_step, [nodes.RETRIEVE, *_ANSWER_NODES])
+    builder.add_conditional_edges(nodes.RETRIEVE, next_step, _ANSWER_NODES)
+    for terminal in (*_ANSWER_NODES, nodes.REJECT):
+        builder.add_edge(terminal, END)
 
     return compile_graph(builder, checkpointer)
 
