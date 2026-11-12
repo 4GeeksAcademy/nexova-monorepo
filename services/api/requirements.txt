@@ -23,3 +23,6 @@ flower>=2.2.0
 # RAG / base de conocimiento (Hito 7): Qdrant + SDK compatible con OpenAI (modelos de 4Geeks).
 qdrant-client>=1.20.0
 openai>=3.49.0
+# Agente LangGraph (Parte 1): grafo explícito sobre el RAG + checkpoints en SQLite.
+langgraph>=1.2.20
+langgraph-checkpoint-sqlite>=3.1.3

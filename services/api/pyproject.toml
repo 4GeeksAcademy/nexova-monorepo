@@ -12,6 +12,8 @@ dependencies = [
     "email-validator>=2.0",
     "fastapi>=0.111,<0.155",
     "flower>=2.2.0",
+    "langgraph>=1.2.20",
+    "langgraph-checkpoint-sqlite>=3.1.3",
     "libpass[bcrypt]>=1.9.3",
     "openai>=3.49.0",
     "pandas>=2.2",
@@ -35,7 +37,7 @@ seed-inventory = "seed_inventory:main"
 
 [tool.setuptools]
 py-modules = ["seed", "seed_inventory", "models", "schemas", "database", "email_service", "password_resets", "telemetry_store"]
-packages = ["telemetry", "reporting", "tasks", "knowledge"]
+packages = ["telemetry", "reporting", "tasks", "knowledge", "agent"]
 
 [dependency-groups]
 dev = [

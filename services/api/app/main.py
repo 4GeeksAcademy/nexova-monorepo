@@ -37,6 +37,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent import router as agent
+from agent.graph import get_agent_graph
 from app.routers import incidents
 from database import create_db_and_tables
 from knowledge import router as knowledge
@@ -184,6 +186,9 @@ async def timing_middleware(request: Request, call_next):
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
+    # Compila el grafo del agente al arrancar: un error estructural tumba el
+    # arranque con AgentGraphBuildError en vez de aparecer en la primera petición.
+    get_agent_graph()
 
 # Orígenes permitidos para el frontend (Next.js en desarrollo).
 # En producción, sustituir por el dominio real del backoffice.
@@ -208,6 +213,7 @@ app.include_router(inventory.router)
 app.include_router(telemetry.router)
 app.include_router(reporting.router)
 app.include_router(knowledge.router)
+app.include_router(agent.router)
 app.include_router(tasks.router)
 
 

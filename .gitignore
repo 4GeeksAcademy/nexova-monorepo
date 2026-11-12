@@ -8,3 +8,6 @@ __pycache__/
 # Exports nocturnos de telemetría (scripts/nightly_export.py): pueden contener datos reales.
 data/raw/telemetry_*.csv
 data/raw/telemetry_*.csv.tmp
+
+# Agente LangGraph: traces JSON y checkpoints SQLite de cada corrida (datos de ejecución).
+services/api/data/agent/
