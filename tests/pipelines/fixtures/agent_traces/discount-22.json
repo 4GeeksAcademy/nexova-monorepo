@@ -1,12 +1,27 @@
 {
-  "run_id": "c4999abf-b0eb-4832-bbc1-d7ee583db7f1",
-  "thread_id": "c4999abf-b0eb-4832-bbc1-d7ee583db7f1",
+  "run_id": "4aa1ba1d-7c2d-4dd3-8992-fe79593632d5",
+  "thread_id": "4aa1ba1d-7c2d-4dd3-8992-fe79593632d5",
   "question": "¿Pueden hacerme un descuento del 22% al 15%?",
-  "started_at": "2026-11-12T16:35:57.171444+00:00",
-  "finished_at": "2026-11-12T16:36:01.013672+00:00",
+  "started_at": "2026-11-12T18:18:59.746933+00:00",
+  "finished_at": "2026-11-12T18:19:06.702632+00:00",
   "status": "completed",
+  "route": {
+    "rag": true,
+    "tickets": false,
+    "inventory": false,
+    "ticket_id": null,
+    "ticket_status": null,
+    "ticket_category": null,
+    "client_company": null,
+    "product": null,
+    "method": "llm"
+  },
+  "sources_used": [
+    "rag"
+  ],
   "nodes": [
     "receive_question",
+    "route_question",
     "retrieve",
     "generate"
   ],
@@ -14,19 +29,41 @@
     {
       "order": 1,
       "node": "receive_question",
-      "started_at": "2026-11-12T16:35:57.173071+00:00",
+      "started_at": "2026-11-12T18:18:59.753356+00:00",
       "duration_ms": 0.0,
       "output": {
         "question": "¿Pueden hacerme un descuento del 22% al 15%?",
-        "error": null
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
       },
       "error": null
     },
     {
       "order": 2,
+      "node": "route_question",
+      "started_at": "2026-11-12T18:18:59.753655+00:00",
+      "duration_ms": 1362.1,
+      "output": {
+        "route": {
+          "rag": true,
+          "tickets": false,
+          "inventory": false,
+          "ticket_id": null,
+          "ticket_status": null,
+          "ticket_category": null,
+          "client_company": null,
+          "product": null,
+          "method": "llm"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
       "node": "retrieve",
-      "started_at": "2026-11-12T16:35:57.173415+00:00",
-      "duration_ms": 759.5,
+      "started_at": "2026-11-12T18:19:01.117100+00:00",
+      "duration_ms": 1051.8,
       "output": {
         "context": [
           {
@@ -34,21 +71,24 @@
             "section": "22% me parece caro comparado con otras firmas",
             "text": "Manejo de Objeciones Comunes de Prospectos\n\"22% me parece caro comparado con otras firmas.\"\nRespuesta sugerida: explicar que la tarifa incluye la garantía de reemplazo\nde 6 meses y el proceso de verificación de referencias, que reduce el riesgo\nde una mala contratación. No se debe ofrecer un descuen"
           }
+        ],
+        "sources_used": [
+          "rag"
         ]
       },
       "error": null
     },
     {
-      "order": 3,
+      "order": 4,
       "node": "generate",
-      "started_at": "2026-11-12T16:35:57.934646+00:00",
-      "duration_ms": 3076.4,
+      "started_at": "2026-11-12T18:19:02.169701+00:00",
+      "duration_ms": 4530.8,
       "output": {
-        "answer": "Entiendo tu pregunta. La tarifa estándar de Nexova es del 22 %, y no podemos modificarla sin una autorización expresa. Cualquier descuento, como bajar al 15 %, requiere la aprobación de Marcos Ibáñez, nuestro Director de Ventas. Lo que sí incluye ese 22 % es una garantía de reemplazo de 6 meses y un proceso riguroso de verificación de referencias, lo que reduce significativamente el riesgo de una mala contratación. Si deseas, puedo escalar tu solicitud a Marcos para que evalúe tu caso.\n\nFuente: [1] Manejo de Objeciones — Sección: 22% me parece caro comparado con otras firmas"
+        "answer": "Entiendo tu inquietud con el precio. Nuestra tarifa del 22% incluye dos beneficios clave: una garantía de reemplazo gratuito de 6 meses si el candidato no funciona por causas atribuibles a nuestro proceso, y una verificación exhaustiva de referencias que reduce el riesgo de una mala contratación. No puedo ofrecerte un descuento al 15% directamente, ya que eso requiere aprobación de Marcos Ibáñez, nuestro Director de Ventas. Si te parece, puedo consultar con él para evaluar tu caso.\n\nFuente: [1] Documento: Manejo de Objeciones — Sección: 22% me parece caro comparado con otras firmas"
       },
       "error": null
     }
   ],
-  "final_answer": "Entiendo tu pregunta. La tarifa estándar de Nexova es del 22 %, y no podemos modificarla sin una autorización expresa. Cualquier descuento, como bajar al 15 %, requiere la aprobación de Marcos Ibáñez, nuestro Director de Ventas. Lo que sí incluye ese 22 % es una garantía de reemplazo de 6 meses y un proceso riguroso de verificación de referencias, lo que reduce significativamente el riesgo de una mala contratación. Si deseas, puedo escalar tu solicitud a Marcos para que evalúe tu caso.\n\nFuente: [1] Manejo de Objeciones — Sección: 22% me parece caro comparado con otras firmas",
+  "final_answer": "Entiendo tu inquietud con el precio. Nuestra tarifa del 22% incluye dos beneficios clave: una garantía de reemplazo gratuito de 6 meses si el candidato no funciona por causas atribuibles a nuestro proceso, y una verificación exhaustiva de referencias que reduce el riesgo de una mala contratación. No puedo ofrecerte un descuento al 15% directamente, ya que eso requiere aprobación de Marcos Ibáñez, nuestro Director de Ventas. Si te parece, puedo consultar con él para evaluar tu caso.\n\nFuente: [1] Documento: Manejo de Objeciones — Sección: 22% me parece caro comparado con otras firmas",
   "error": null
 }

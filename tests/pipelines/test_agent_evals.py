@@ -7,7 +7,9 @@ Cada eval corre el grafo, lee el trace JSON que dejó la corrida y comprueba
 criterios sobre ese trace (no sobre la ejecución en vivo):
 
 - Evals de flujo (1–6): `retrieve` y `generate_answer` sustituidos por fakes,
-  checkpointer SQLite en memoria y traces en `tmp_path`. Sin Qdrant ni LLM.
+  enrutador fijo en "solo RAG", checkpointer SQLite en memoria y traces en
+  `tmp_path`. Sin Qdrant ni LLM. (Los evals de tools y enrutamiento de la
+  Parte 2 están en `test_agent_tools_evals.py`.)
 - Evals de anclaje (7–8): leen traces REALES grabados con
   `scripts/agent_record_traces.py` (Qdrant + modelos de 4Geeks) y verifican
   que la respuesta sigue anclada en `docs/company-knowledge-base/`.
@@ -33,6 +35,7 @@ from langgraph.graph import END, START, StateGraph  # noqa: E402
 
 from agent import nodes  # noqa: E402
 from agent.graph import AgentGraphBuildError, build_graph, compile_graph, sqlite_checkpointer  # noqa: E402
+from agent.routing import RouteDecision  # noqa: E402
 from agent.runner import AgentRunResult, run_agent, run_config  # noqa: E402
 from agent.state import AgentState  # noqa: E402
 from agent.tracing import load_trace  # noqa: E402
@@ -70,10 +73,18 @@ def trace_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return directory
 
 
+def rag_only(question: str) -> RouteDecision:
+    return RouteDecision(rag=True, method="rules")
+
+
+RAG_PATH = [nodes.RECEIVE_QUESTION, nodes.ROUTE_QUESTION, nodes.RETRIEVE]
+
+
 def _run(question: str, rag: FakeRAG):
     graph = build_graph(
         retrieve_fn=rag.retrieve,
         generate_fn=rag.generate_answer,
+        classify_fn=rag_only,
         checkpointer=sqlite_checkpointer(":memory:"),
     )
     result = run_agent(question, graph=graph)
@@ -87,9 +98,10 @@ def test_eval_1_in_domain_question_retrieves_before_generating() -> None:
     _, result, trace = _run("¿Cuál es la tarifa del headhunting?", FakeRAG([PRICING_CHUNK]))
 
     assert trace["status"] == "completed"
-    assert trace["nodes"] == [nodes.RECEIVE_QUESTION, nodes.RETRIEVE, nodes.GENERATE]
+    assert trace["nodes"] == [*RAG_PATH, nodes.GENERATE]
     assert trace["nodes"].index(nodes.RETRIEVE) < trace["nodes"].index(nodes.GENERATE)
-    assert [s["order"] for s in trace["steps"]] == [1, 2, 3]
+    assert [s["order"] for s in trace["steps"]] == [1, 2, 3, 4]
+    assert trace["sources_used"] == ["rag"]
     assert trace["final_answer"] == result.answer and "22" in trace["final_answer"]
 
 
@@ -97,9 +109,10 @@ def test_eval_2_no_context_routes_to_honest_answer_without_generating() -> None:
     rag = FakeRAG([])
     _, _, trace = _run("¿Quién ganó el último mundial?", rag)
 
-    assert trace["nodes"] == [nodes.RECEIVE_QUESTION, nodes.RETRIEVE, nodes.NO_INFORMATION]
+    assert trace["nodes"] == [*RAG_PATH, nodes.NO_INFORMATION]
     assert nodes.GENERATE not in trace["nodes"]
-    assert trace["steps"][1]["output"] == {"context": []}
+    retrieve_step = next(s for s in trace["steps"] if s["node"] == nodes.RETRIEVE)
+    assert retrieve_step["output"]["context"] == []
     assert trace["final_answer"] == nodes.NO_INFORMATION_ANSWER
     assert rag.generate_calls == []
 
@@ -168,6 +181,7 @@ def test_failed_node_is_recorded_in_the_trace(trace_dir: Path) -> None:
     graph = build_graph(
         retrieve_fn=broken_retrieve,
         generate_fn=FakeRAG([]).generate_answer,
+        classify_fn=rag_only,
         checkpointer=sqlite_checkpointer(":memory:"),
     )
     with pytest.raises(ConnectionError):
@@ -197,7 +211,8 @@ def _retrieved_sources(trace: dict[str, Any]) -> set[str]:
 def test_eval_7_discount_answer_stays_grounded_in_pricing_policy() -> None:
     trace = _fixture("discount-22")
 
-    assert trace["nodes"] == [nodes.RECEIVE_QUESTION, nodes.RETRIEVE, nodes.GENERATE]
+    assert trace["nodes"] == [*RAG_PATH, nodes.GENERATE]
+    assert trace["sources_used"] == ["rag"]  # política: sin tools
     assert _retrieved_sources(trace) & {"pricing-model", "objection-handling"}
     answer = trace["final_answer"]
     # Política de la base de conocimiento: tarifa estándar del 22 % sin descuentos;
@@ -220,7 +235,7 @@ def test_eval_8_headhunting_fee_quotes_the_knowledge_base() -> None:
 def test_eval_9_out_of_domain_question_is_not_answered_from_thin_air() -> None:
     trace = _fixture("out-of-domain")
 
-    assert trace["nodes"] == [nodes.RECEIVE_QUESTION, nodes.RETRIEVE, nodes.NO_INFORMATION]
+    assert trace["nodes"] == [*RAG_PATH, nodes.NO_INFORMATION]
     assert trace["final_answer"] == nodes.NO_INFORMATION_ANSWER
 
 

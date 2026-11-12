@@ -1,12 +1,27 @@
 {
-  "run_id": "6edf7ba8-cf38-4a5e-82aa-58b65c31c0bf",
-  "thread_id": "6edf7ba8-cf38-4a5e-82aa-58b65c31c0bf",
+  "run_id": "ff2edfe9-7899-4f98-b2bf-481be18f274a",
+  "thread_id": "ff2edfe9-7899-4f98-b2bf-481be18f274a",
   "question": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?",
-  "started_at": "2026-11-12T16:36:05.721141+00:00",
-  "finished_at": "2026-11-12T16:36:06.372088+00:00",
+  "started_at": "2026-11-12T18:19:10.146016+00:00",
+  "finished_at": "2026-11-12T18:19:14.020463+00:00",
   "status": "completed",
+  "route": {
+    "rag": true,
+    "tickets": false,
+    "inventory": false,
+    "ticket_id": null,
+    "ticket_status": null,
+    "ticket_category": null,
+    "client_company": null,
+    "product": null,
+    "method": "llm"
+  },
+  "sources_used": [
+    "rag"
+  ],
   "nodes": [
     "receive_question",
+    "route_question",
     "retrieve",
     "no_information"
   ],
@@ -14,28 +29,53 @@
     {
       "order": 1,
       "node": "receive_question",
-      "started_at": "2026-11-12T16:36:05.722699+00:00",
+      "started_at": "2026-11-12T18:19:10.147844+00:00",
       "duration_ms": 0.0,
       "output": {
         "question": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?",
-        "error": null
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
       },
       "error": null
     },
     {
       "order": 2,
-      "node": "retrieve",
-      "started_at": "2026-11-12T16:36:05.723322+00:00",
-      "duration_ms": 645.4,
+      "node": "route_question",
+      "started_at": "2026-11-12T18:19:10.148434+00:00",
+      "duration_ms": 3314.7,
       "output": {
-        "context": []
+        "route": {
+          "rag": true,
+          "tickets": false,
+          "inventory": false,
+          "ticket_id": null,
+          "ticket_status": null,
+          "ticket_category": null,
+          "client_company": null,
+          "product": null,
+          "method": "llm"
+        }
       },
       "error": null
     },
     {
       "order": 3,
+      "node": "retrieve",
+      "started_at": "2026-11-12T18:19:13.464607+00:00",
+      "duration_ms": 552.1,
+      "output": {
+        "context": [],
+        "sources_used": [
+          "rag"
+        ]
+      },
+      "error": null
+    },
+    {
+      "order": 4,
       "node": "no_information",
-      "started_at": "2026-11-12T16:36:06.369771+00:00",
+      "started_at": "2026-11-12T18:19:14.017786+00:00",
       "duration_ms": 0.0,
       "output": {
         "answer": "La base de conocimiento de Nexova no tiene información suficiente sobre eso. Te sugiero consultarlo con un account manager senior antes de responder al prospecto."
