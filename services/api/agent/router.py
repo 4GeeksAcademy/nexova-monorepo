@@ -19,7 +19,7 @@ from agent.nodes import EMPTY_QUESTION_ERROR, EMPTY_QUESTION_MESSAGE
 from agent.runner import run_agent
 from agent.schemas import AgentQueryRequest, AgentQueryResponse
 from models import User
-from security import get_current_user
+from security import get_bearer_token, get_current_user
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
@@ -29,10 +29,12 @@ logger = logging.getLogger(__name__)
 def query_agent(
     payload: AgentQueryRequest,
     current_user: User = Depends(get_current_user),
+    token: str = Depends(get_bearer_token),
 ) -> AgentQueryResponse:
-    # `def` síncrono: FastAPI lo ejecuta en su threadpool (Qdrant y el LLM bloquean).
+    # `def` síncrono: FastAPI lo ejecuta en su threadpool (Qdrant, el LLM y las tools bloquean).
+    # El JWT de quien llama se reenvía a la tool de tickets (el gestor de incidentes exige auth).
     try:
-        result = run_agent(payload.question)
+        result = run_agent(payload.question, auth_token=token)
     except Exception:  # Cualquier nodo caído (Qdrant, LLM, checkpoint): sin detalles al cliente.
         logger.exception("Fallo en una corrida del agente")
         raise HTTPException(

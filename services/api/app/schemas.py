@@ -8,7 +8,9 @@ Reflejan exactamente la forma que produce
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import date, datetime
+
+from pydantic import BaseModel, ConfigDict
 
 
 class InvalidBreakdownItem(BaseModel):
@@ -51,3 +53,19 @@ class IncidentAnalysisSummary(BaseModel):
     category_breakdown: list[CategoryBreakdownItem]
     status_breakdown: list[StatusBreakdownItem]
     satisfaction: SatisfactionSummary
+
+
+class IncidentRead(BaseModel):
+    """Ticket individual del gestor de incidentes. Nunca incluye `customer_email`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ticket_id: str
+    date: date
+    client_company: str
+    category: str
+    description: str
+    agent_id: str
+    status: str
+    satisfaction_score: int | None = None
+    updated_at: datetime

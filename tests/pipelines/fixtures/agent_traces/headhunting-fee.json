@@ -1,12 +1,27 @@
 {
-  "run_id": "063d2bb4-f193-4d9d-b3d1-b3b8eaa52b0e",
-  "thread_id": "063d2bb4-f193-4d9d-b3d1-b3b8eaa52b0e",
+  "run_id": "28cca5ef-c279-423a-8a63-4ffab4d5fc20",
+  "thread_id": "28cca5ef-c279-423a-8a63-4ffab4d5fc20",
   "question": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?",
-  "started_at": "2026-11-12T16:36:01.016699+00:00",
-  "finished_at": "2026-11-12T16:36:05.718115+00:00",
+  "started_at": "2026-11-12T18:19:06.708217+00:00",
+  "finished_at": "2026-11-12T18:19:10.142615+00:00",
   "status": "completed",
+  "route": {
+    "rag": true,
+    "tickets": false,
+    "inventory": false,
+    "ticket_id": null,
+    "ticket_status": null,
+    "ticket_category": null,
+    "client_company": null,
+    "product": null,
+    "method": "llm"
+  },
+  "sources_used": [
+    "rag"
+  ],
   "nodes": [
     "receive_question",
+    "route_question",
     "retrieve",
     "generate"
   ],
@@ -14,19 +29,41 @@
     {
       "order": 1,
       "node": "receive_question",
-      "started_at": "2026-11-12T16:36:01.018339+00:00",
+      "started_at": "2026-11-12T18:19:06.709791+00:00",
       "duration_ms": 0.0,
       "output": {
         "question": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?",
-        "error": null
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
       },
       "error": null
     },
     {
       "order": 2,
+      "node": "route_question",
+      "started_at": "2026-11-12T18:19:06.710337+00:00",
+      "duration_ms": 985.8,
+      "output": {
+        "route": {
+          "rag": true,
+          "tickets": false,
+          "inventory": false,
+          "ticket_id": null,
+          "ticket_status": null,
+          "ticket_category": null,
+          "client_company": null,
+          "product": null,
+          "method": "llm"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
       "node": "retrieve",
-      "started_at": "2026-11-12T16:36:01.018943+00:00",
-      "duration_ms": 1026.6,
+      "started_at": "2026-11-12T18:19:07.697085+00:00",
+      "duration_ms": 575.2,
       "output": {
         "context": [
           {
@@ -54,21 +91,24 @@
             "section": "Tiempos de entrega comprometidos por tipo de búsqueda",
             "text": "SLA del Proceso de Contratación\nTiempos de entrega comprometidos por tipo de búsqueda:\n- Perfil ejecutivo (C-level, VP): 8 semanas promedio, terna de 3 candidatos.\n- Perfil gerencial (director, gerente): 6 semanas promedio, terna de 3 a 4\n  candidatos.\n- Perfil especializado técnico: 5 semanas prome"
           }
+        ],
+        "sources_used": [
+          "rag"
         ]
       },
       "error": null
     },
     {
-      "order": 3,
+      "order": 4,
       "node": "generate",
-      "started_at": "2026-11-12T16:36:02.046371+00:00",
-      "duration_ms": 3668.7,
+      "started_at": "2026-11-12T18:19:08.273549+00:00",
+      "duration_ms": 1866.3,
       "output": {
-        "answer": "La tarifa estándar de headhunting ejecutivo es del **22 % sobre el salario anual bruto** del cargo contratado. Se factura en tres hitos:  \n- **30 %** al iniciar la búsqueda.  \n- **30 %** al presentar la terna final.  \n- **40 %** al momento de la contratación.  \n\nIncluye garantía de reemplazo gratuito si el candidato se va antes de 6 meses por causas atribuibles a nuestro proceso de selección.  \n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios."
+        "answer": "La tarifa estándar de headhunting ejecutivo es del **22% del salario anual bruto** del cargo contratado. Se factura en tres momentos: **30% al iniciar la búsqueda**, **30% al presentar la terna final** y **40% al momento de la contratación**. Incluye garantía de reemplazo gratuito por 6 meses si el candidato se va por causas atribuibles a nuestro proceso.\n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios."
       },
       "error": null
     }
   ],
-  "final_answer": "La tarifa estándar de headhunting ejecutivo es del **22 % sobre el salario anual bruto** del cargo contratado. Se factura en tres hitos:  \n- **30 %** al iniciar la búsqueda.  \n- **30 %** al presentar la terna final.  \n- **40 %** al momento de la contratación.  \n\nIncluye garantía de reemplazo gratuito si el candidato se va antes de 6 meses por causas atribuibles a nuestro proceso de selección.  \n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios.",
+  "final_answer": "La tarifa estándar de headhunting ejecutivo es del **22% del salario anual bruto** del cargo contratado. Se factura en tres momentos: **30% al iniciar la búsqueda**, **30% al presentar la terna final** y **40% al momento de la contratación**. Incluye garantía de reemplazo gratuito por 6 meses si el candidato se va por causas atribuibles a nuestro proceso.\n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios.",
   "error": null
 }

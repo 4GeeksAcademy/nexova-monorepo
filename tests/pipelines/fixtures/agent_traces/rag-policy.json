@@ -1,0 +1,114 @@
+{
+  "run_id": "30c484ac-1b0e-4d03-98e0-8cdb59f2d4d0",
+  "thread_id": "30c484ac-1b0e-4d03-98e0-8cdb59f2d4d0",
+  "question": "¿Los tiempos de entrega de una búsqueda ejecutiva están garantizados?",
+  "started_at": "2026-11-12T18:19:16.850025+00:00",
+  "finished_at": "2026-11-12T18:19:25.572476+00:00",
+  "status": "completed",
+  "route": {
+    "rag": true,
+    "tickets": false,
+    "inventory": false,
+    "ticket_id": null,
+    "ticket_status": null,
+    "ticket_category": null,
+    "client_company": null,
+    "product": null,
+    "method": "llm"
+  },
+  "sources_used": [
+    "rag"
+  ],
+  "nodes": [
+    "receive_question",
+    "route_question",
+    "retrieve",
+    "generate"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-12T18:19:16.851681+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Los tiempos de entrega de una búsqueda ejecutiva están garantizados?",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "route_question",
+      "started_at": "2026-11-12T18:19:16.852215+00:00",
+      "duration_ms": 5739.8,
+      "output": {
+        "route": {
+          "rag": true,
+          "tickets": false,
+          "inventory": false,
+          "ticket_id": null,
+          "ticket_status": null,
+          "ticket_category": null,
+          "client_company": null,
+          "product": null,
+          "method": "llm"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "retrieve",
+      "started_at": "2026-11-12T18:19:22.593254+00:00",
+      "duration_ms": 712.0,
+      "output": {
+        "context": [
+          {
+            "source_document": "hiring-process-sla",
+            "section": "Tiempos de entrega comprometidos por tipo de búsqueda",
+            "text": "SLA del Proceso de Contratación\nTiempos de entrega comprometidos por tipo de búsqueda:\n- Perfil ejecutivo (C-level, VP): 8 semanas promedio, terna de 3 candidatos.\n- Perfil gerencial (director, gerente): 6 semanas promedio, terna de 3 a 4\n  candidatos.\n- Perfil especializado técnico: 5 semanas prome"
+          },
+          {
+            "source_document": "hiring-process-sla",
+            "section": "Estos tiempos son promedios basados en búsquedas anteriores exitosas, no una ga…",
+            "text": "SLA del Proceso de Contratación\nEstos tiempos son promedios basados en búsquedas anteriores exitosas, no una\ngarantía contractual estricta, salvo que el contrato lo especifique\nexplícitamente."
+          },
+          {
+            "source_document": "hiring-process-sla",
+            "section": "Nexova no garantiza tiempos de entrega para búsquedas con requisitos de ubicaci…",
+            "text": "SLA del Proceso de Contratación\nNexova no garantiza tiempos de entrega para búsquedas con requisitos de\nubicación geográfica muy restrictivos (por ejemplo, un único candidato\ndisponible en una ciudad específica)."
+          },
+          {
+            "source_document": "service-lines",
+            "section": "Headhunting ejecutivo y de mandos medios",
+            "text": "Líneas de Servicio\nNexova opera tres líneas de negocio:\n1. Headhunting ejecutivo y de mandos medios: búsqueda y selección de\n   perfiles gerenciales y directivos. Incluye búsqueda directa, evaluación\n   por competencias, y verificación de referencias. Tiempo promedio de\n   entrega: 6 a 8 semanas des"
+          },
+          {
+            "source_document": "pricing-model",
+            "section": "Headhunting ejecutivo",
+            "text": "Modelo de Tarifas\nHeadhunting ejecutivo:\n- Tarifa estándar: 22% del salario anual bruto del cargo contratado.\n- Se factura en tres momentos: 30% al iniciar la búsqueda, 30% al presentar\n  la terna final, 40% al momento de la contratación.\n- Garantía de reemplazo gratuito si el candidato deja el carg"
+          }
+        ],
+        "sources_used": [
+          "rag"
+        ]
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "generate",
+      "started_at": "2026-11-12T18:19:23.306527+00:00",
+      "duration_ms": 2263.4,
+      "output": {
+        "answer": "No, los tiempos de entrega que manejamos son promedios basados en búsquedas anteriores exitosas, no una garantía contractual estricta. Para un perfil ejecutivo (C-level, VP) el promedio es de 8 semanas para presentar una terna de 3 candidatos. La única excepción es si el contrato lo especifica explícitamente. Además, no podemos garantizar plazos para búsquedas con requisitos de ubicación geográfica muy restrictivos.\n\nFuente: [1] SLA del Proceso de Contratación — Sección: Tiempos de entrega comprometidos por tipo de búsqueda; [2] SLA del Proceso de Contratación — Sección: Estos tiempos son promedios…; [3] SLA del Proceso de Contratación — Sección: Nexova no garantiza tiempos de entrega para búsquedas con requisitos de ubicación…"
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "No, los tiempos de entrega que manejamos son promedios basados en búsquedas anteriores exitosas, no una garantía contractual estricta. Para un perfil ejecutivo (C-level, VP) el promedio es de 8 semanas para presentar una terna de 3 candidatos. La única excepción es si el contrato lo especifica explícitamente. Además, no podemos garantizar plazos para búsquedas con requisitos de ubicación geográfica muy restrictivos.\n\nFuente: [1] SLA del Proceso de Contratación — Sección: Tiempos de entrega comprometidos por tipo de búsqueda; [2] SLA del Proceso de Contratación — Sección: Estos tiempos son promedios…; [3] SLA del Proceso de Contratación — Sección: Nexova no garantiza tiempos de entrega para búsquedas con requisitos de ubicación…",
+  "error": null
+}

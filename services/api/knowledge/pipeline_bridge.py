@@ -22,7 +22,14 @@ for _path in (PROCESS_PATH, PIPELINES_PATH):
     if str(_path) not in sys.path:
         sys.path.append(str(_path))
 
-# `retrieve` y `generate_answer` por separado los usa el grafo del agente (`agent/`).
-from rag import generate_answer, query, retrieve  # noqa: E402
+# `retrieve` y `generate_answer` por separado los usa el grafo del agente (`agent/`);
+# el cliente y el modelo de generación, su enrutador (`agent/routing.py`).
+from rag import (  # noqa: E402
+    generate_answer,
+    generation_model,
+    get_llm_client,
+    query,
+    retrieve,
+)
 
-__all__ = ["generate_answer", "query", "retrieve"]
+__all__ = ["generate_answer", "generation_model", "get_llm_client", "query", "retrieve"]

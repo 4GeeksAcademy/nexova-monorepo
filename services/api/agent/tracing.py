@@ -88,6 +88,8 @@ class RunTracer:
         status: str,
         final_answer: str | None,
         error: str | None,
+        route: dict[str, Any] | None = None,
+        sources_used: list[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -96,17 +98,34 @@ class RunTracer:
             "started_at": self.started_at,
             "finished_at": _now(),
             "status": status,
+            "route": route,
+            # Fuentes consultadas, en orden: "tickets" / "inventory" (tools en vivo), "rag".
+            "sources_used": sources_used or [],
             "nodes": [step["node"] for step in self.steps],
             "steps": self.steps,
             "final_answer": final_answer,
             "error": error,
         }
 
-    def save(self, *, status: str, final_answer: str | None, error: str | None) -> Path:
+    def save(
+        self,
+        *,
+        status: str,
+        final_answer: str | None,
+        error: str | None,
+        route: dict[str, Any] | None = None,
+        sources_used: list[str] | None = None,
+    ) -> Path:
         directory = trace_dir()
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{self.run_id}.json"
-        payload = self.to_dict(status=status, final_answer=final_answer, error=error)
+        payload = self.to_dict(
+            status=status,
+            final_answer=final_answer,
+            error=error,
+            route=route,
+            sources_used=sources_used,
+        )
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 

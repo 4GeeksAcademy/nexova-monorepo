@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date as date_type
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -273,3 +274,24 @@ class AssetExit(SQLModel, table=True):
     office: str
     created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
     user_uuid: str
+
+
+# ---------------------------------------------------------------------------
+# Gestor de incidentes — tickets individuales (Supabase)
+# ---------------------------------------------------------------------------
+# Los carga `POST /api/incidents/analyze` (solo los registros válidos según
+# `incidents_analyzer.validate_record`) y los leen `GET /api/incidents` y
+# `GET /api/incidents/{ticket_id}`, que consulta la tool del agente.
+# Nunca se guarda `customer_email` (regla de privacidad del analyzer).
+
+
+class Incident(SQLModel, table=True):
+    ticket_id: str = SQLField(primary_key=True)
+    date: date_type
+    client_company: str = SQLField(index=True)
+    category: str = SQLField(index=True)
+    description: str
+    agent_id: str
+    status: str = SQLField(index=True)
+    satisfaction_score: int | None = SQLField(default=None)
+    updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))

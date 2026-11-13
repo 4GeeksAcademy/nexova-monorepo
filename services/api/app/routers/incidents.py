@@ -2,20 +2,34 @@
 Router: /api/incidents
 
 - POST /api/incidents/analyze          -> analiza un CSV subido, devuelve JSON
+                                          y guarda sus tickets válidos (Supabase)
 - GET  /api/incidents/results/export   -> devuelve el último análisis en CSV
+- GET  /api/incidents                  -> lista tickets (filtros status/category/client_company)
+- GET  /api/incidents/{ticket_id}      -> un ticket; 404 si no existe
+
+Los dos GET de tickets son de solo lectura y los consulta la tool de tickets
+del agente LangGraph (`services/api/agent/tools/tickets.py`).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+import logging
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from sqlmodel import Session
 
 import incidents_analyzer as ia
 
-from app.schemas import IncidentAnalysisSummary
+from app import incidents_store
+from app.schemas import IncidentAnalysisSummary, IncidentRead
 from app.state import get_last_summary, set_last_summary
+from database import get_db
 from models import User
 from security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -76,6 +90,14 @@ async def analyze_incidents(
     # Se guarda para que GET /api/incidents/results/export pueda descargarlo.
     set_last_summary(summary)
 
+    # Tickets válidos a Supabase para consultarlos uno a uno (GET /api/incidents/{id}).
+    # Si la base de datos falla, el análisis se devuelve igual: el resumen no depende de ella.
+    try:
+        stored = await run_in_threadpool(incidents_store.upsert_valid_tickets, records)
+        logger.info("Incidentes: %d tickets válidos guardados de %s", stored, file.filename)
+    except Exception:
+        logger.exception("No se pudieron guardar los tickets de %s", file.filename)
+
     return IncidentAnalysisSummary.model_validate(summary)
 
 
@@ -100,3 +122,32 @@ async def export_results(current_user: User = Depends(get_current_user)) -> Resp
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="results.csv"'},
     )
+
+
+@router.get("", response_model=list[IncidentRead])
+def list_incidents(
+    status: str | None = Query(default=None, max_length=20),
+    category: str | None = Query(default=None, max_length=20),
+    client_company: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=20, ge=1, le=incidents_store.MAX_LIST_LIMIT),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[IncidentRead]:
+    """Tickets guardados, del más reciente al más antiguo. Solo lectura."""
+    tickets = incidents_store.list_tickets(
+        db, status=status, category=category, client_company=client_company, limit=limit
+    )
+    return [IncidentRead.model_validate(t) for t in tickets]
+
+
+@router.get("/{ticket_id}", response_model=IncidentRead)
+def get_incident(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncidentRead:
+    """Un ticket por su id (p. ej. NXV-000001). Solo lectura."""
+    ticket = incidents_store.get_ticket(db, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.")
+    return IncidentRead.model_validate(ticket)

@@ -3,13 +3,19 @@ Graba traces REALES del agente (Qdrant + modelos de 4Geeks) como fixtures de los
 
     uv run --project services/api python scripts/agent_record_traces.py
 
-Requiere la colección indexada (`scripts/rag_setup.py`) y las variables de
-`.env` (QDRANT_URL, LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL,
-GENERATION_MODEL). Ejecuta el grafo de producción —con checkpoints SQLite y
-trace JSON— para cada caso y copia el trace a
-`tests/pipelines/fixtures/agent_traces/<nombre>.json`, que leen los evals de
-anclaje (`tests/pipelines/test_agent_evals.py`). Ese archivo es también el
-export del trace que acompaña al PR.
+Requiere:
+- la colección indexada (`scripts/rag_setup.py`) y las variables de `.env`
+  (QDRANT_URL, LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL, GENERATION_MODEL);
+- la API corriendo (tools en vivo: `AGENT_TOOLS_BASE_URL`, por defecto
+  http://localhost:8000) con los tickets cargados vía `POST /api/incidents/analyze`;
+- `INCIDENTS_API_TOKEN`: un JWT válido para el gestor de incidentes (nunca se
+  guarda en el trace).
+
+Ejecuta el grafo de producción —enrutador LLM real, checkpoints SQLite y trace
+JSON— para cada caso y copia el trace a
+`tests/pipelines/fixtures/agent_traces/<nombre>.json`, que leen los evals
+(`test_agent_evals.py` y `test_agent_tools_evals.py`). Son también los traces
+que acompañan a los PR.
 """
 
 from __future__ import annotations
@@ -31,9 +37,18 @@ from agent.runner import run_agent, run_config  # noqa: E402
 FIXTURES_DIR = REPO_ROOT / "tests" / "pipelines" / "fixtures" / "agent_traces"
 
 CASES = {
+    # Parte 1: anclaje en la base de conocimiento.
     "discount-22": "¿Pueden hacerme un descuento del 22% al 15%?",
     "headhunting-fee": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?",
     "out-of-domain": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?",
+    # Parte 2: enrutamiento entre RAG y tools en vivo.
+    "ticket-status": "¿En qué estado está el ticket NXV-000054?",
+    "rag-policy": "¿Los tiempos de entrega de una búsqueda ejecutiva están garantizados?",
+    "ticket-plus-policy": (
+        "El ticket NXV-000072 sigue abierto y el cliente pregunta por la garantía de reemplazo, "
+        "¿qué le respondo?"
+    ),
+    "stock": "¿Tenemos stock de ratones ergonómicos?",
 }
 
 
@@ -48,6 +63,8 @@ def main() -> None:
         trace = json.loads(target.read_text(encoding="utf-8"))
         print(f"\n=== {name} (run_id={result.run_id}) ===")
         print(f"pregunta:     {question}")
+        print(f"ruta:         {trace['route']}")
+        print(f"fuentes:      {' → '.join(trace['sources_used']) or '—'}")
         print(f"nodos:        {' → '.join(trace['nodes'])}")
         print(f"checkpoints:  {len(checkpoints)} en SQLite (thread_id={result.run_id})")
         print(f"respuesta:    {result.answer}")
