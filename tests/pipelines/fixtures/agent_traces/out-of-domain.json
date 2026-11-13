@@ -1,0 +1,48 @@
+{
+  "run_id": "6edf7ba8-cf38-4a5e-82aa-58b65c31c0bf",
+  "thread_id": "6edf7ba8-cf38-4a5e-82aa-58b65c31c0bf",
+  "question": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?",
+  "started_at": "2026-11-12T16:36:05.721141+00:00",
+  "finished_at": "2026-11-12T16:36:06.372088+00:00",
+  "status": "completed",
+  "nodes": [
+    "receive_question",
+    "retrieve",
+    "no_information"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-12T16:36:05.722699+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Cuál es la capital de Francia y quién ganó el último mundial de fútbol?",
+        "error": null
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "retrieve",
+      "started_at": "2026-11-12T16:36:05.723322+00:00",
+      "duration_ms": 645.4,
+      "output": {
+        "context": []
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "no_information",
+      "started_at": "2026-11-12T16:36:06.369771+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "La base de conocimiento de Nexova no tiene información suficiente sobre eso. Te sugiero consultarlo con un account manager senior antes de responder al prospecto."
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "La base de conocimiento de Nexova no tiene información suficiente sobre eso. Te sugiero consultarlo con un account manager senior antes de responder al prospecto.",
+  "error": null
+}

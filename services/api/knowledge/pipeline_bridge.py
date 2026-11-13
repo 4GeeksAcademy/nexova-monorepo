@@ -22,6 +22,7 @@ for _path in (PROCESS_PATH, PIPELINES_PATH):
     if str(_path) not in sys.path:
         sys.path.append(str(_path))
 
-from rag import query  # noqa: E402
+# `retrieve` y `generate_answer` por separado los usa el grafo del agente (`agent/`).
+from rag import generate_answer, query, retrieve  # noqa: E402
 
-__all__ = ["query"]
+__all__ = ["generate_answer", "query", "retrieve"]

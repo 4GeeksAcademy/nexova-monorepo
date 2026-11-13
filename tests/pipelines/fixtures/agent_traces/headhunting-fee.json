@@ -1,0 +1,74 @@
+{
+  "run_id": "063d2bb4-f193-4d9d-b3d1-b3b8eaa52b0e",
+  "thread_id": "063d2bb4-f193-4d9d-b3d1-b3b8eaa52b0e",
+  "question": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?",
+  "started_at": "2026-11-12T16:36:01.016699+00:00",
+  "finished_at": "2026-11-12T16:36:05.718115+00:00",
+  "status": "completed",
+  "nodes": [
+    "receive_question",
+    "retrieve",
+    "generate"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-12T16:36:01.018339+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Cuál es la tarifa del headhunting ejecutivo y cómo se factura?",
+        "error": null
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "retrieve",
+      "started_at": "2026-11-12T16:36:01.018943+00:00",
+      "duration_ms": 1026.6,
+      "output": {
+        "context": [
+          {
+            "source_document": "pricing-model",
+            "section": "Headhunting ejecutivo",
+            "text": "Modelo de Tarifas\nHeadhunting ejecutivo:\n- Tarifa estándar: 22% del salario anual bruto del cargo contratado.\n- Se factura en tres momentos: 30% al iniciar la búsqueda, 30% al presentar\n  la terna final, 40% al momento de la contratación.\n- Garantía de reemplazo gratuito si el candidato deja el carg"
+          },
+          {
+            "source_document": "service-lines",
+            "section": "Headhunting ejecutivo y de mandos medios",
+            "text": "Líneas de Servicio\nNexova opera tres líneas de negocio:\n1. Headhunting ejecutivo y de mandos medios: búsqueda y selección de\n   perfiles gerenciales y directivos. Incluye búsqueda directa, evaluación\n   por competencias, y verificación de referencias. Tiempo promedio de\n   entrega: 6 a 8 semanas des"
+          },
+          {
+            "source_document": "pricing-model",
+            "section": "Outsourcing de soporte al cliente",
+            "text": "Modelo de Tarifas\nOutsourcing de soporte al cliente:\n- Tarifa mensual por agente: entre 1.800 y 2.400 USD, según el nivel de\n  especialización requerido y el idioma del soporte.\n- Contrato mínimo: 6 meses. Cancelación anticipada tiene una penalidad\n  equivalente a un mes de tarifa.\n- El cliente no p"
+          },
+          {
+            "source_document": "objection-handling",
+            "section": "22% me parece caro comparado con otras firmas",
+            "text": "Manejo de Objeciones Comunes de Prospectos\n\"22% me parece caro comparado con otras firmas.\"\nRespuesta sugerida: explicar que la tarifa incluye la garantía de reemplazo\nde 6 meses y el proceso de verificación de referencias, que reduce el riesgo\nde una mala contratación. No se debe ofrecer un descuen"
+          },
+          {
+            "source_document": "hiring-process-sla",
+            "section": "Tiempos de entrega comprometidos por tipo de búsqueda",
+            "text": "SLA del Proceso de Contratación\nTiempos de entrega comprometidos por tipo de búsqueda:\n- Perfil ejecutivo (C-level, VP): 8 semanas promedio, terna de 3 candidatos.\n- Perfil gerencial (director, gerente): 6 semanas promedio, terna de 3 a 4\n  candidatos.\n- Perfil especializado técnico: 5 semanas prome"
+          }
+        ]
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "generate",
+      "started_at": "2026-11-12T16:36:02.046371+00:00",
+      "duration_ms": 3668.7,
+      "output": {
+        "answer": "La tarifa estándar de headhunting ejecutivo es del **22 % sobre el salario anual bruto** del cargo contratado. Se factura en tres hitos:  \n- **30 %** al iniciar la búsqueda.  \n- **30 %** al presentar la terna final.  \n- **40 %** al momento de la contratación.  \n\nIncluye garantía de reemplazo gratuito si el candidato se va antes de 6 meses por causas atribuibles a nuestro proceso de selección.  \n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios."
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "La tarifa estándar de headhunting ejecutivo es del **22 % sobre el salario anual bruto** del cargo contratado. Se factura en tres hitos:  \n- **30 %** al iniciar la búsqueda.  \n- **30 %** al presentar la terna final.  \n- **40 %** al momento de la contratación.  \n\nIncluye garantía de reemplazo gratuito si el candidato se va antes de 6 meses por causas atribuibles a nuestro proceso de selección.  \n\nFuente: [1] Modelo de Tarifas — Sección: Headhunting ejecutivo; [2] Líneas de Servicio — Sección: Headhunting ejecutivo y de mandos medios.",
+  "error": null
+}
