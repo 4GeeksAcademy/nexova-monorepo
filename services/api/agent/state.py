@@ -15,8 +15,8 @@ Solo lo que un nodo necesita para decidir el siguiente paso:
 
 No se guarda historial de conversación: cada consulta es independiente y
 arrastrarlo engordaría cada checkpoint sin que ningún nodo lo lea. Tampoco
-credenciales: el token para las tools viaja fuera del estado
-(`agent.tools.transport.forwarded_credentials`).
+credenciales: el token OAuth de las tools vive solo en el cliente MCP
+(`agent.tools.mcp_client`).
 """
 
 from __future__ import annotations
