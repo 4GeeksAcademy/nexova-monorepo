@@ -1,11 +1,12 @@
 """
-Tool de tickets: consulta en vivo el gestor de incidentes (solo lectura).
+Tool de tickets: consulta en vivo el Incidents Manager a través del MCP Server
+`mcps/nexova-tools` (solo lectura para el agente).
 
-    GET /api/incidents/{ticket_id}   (por id)
-    GET /api/incidents?status=&category=&client_company=&limit=   (por filtros)
+    get_ticket(ticket_id)                                   (por id)
+    list_tickets(status, category, client_company, limit)   (por filtros)
 
-Ambos endpoints exigen JWT: se reenvía el de quien llama al agente (ver
-`agent.tools.transport`).
+El agente solo tiene el scope `incidents:read`: aunque el MCP Server expone
+`create_ticket` y `update_ticket_status`, este cliente nunca puede usarlas.
 """
 
 from __future__ import annotations
@@ -14,10 +15,10 @@ import time
 from datetime import date, datetime
 from typing import Literal
 
-import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from agent.tools.transport import ToolCallError, ToolStatus, http_get
+from agent.tools.mcp_client import McpToolCaller, call_mcp_tool
+from agent.tools.transport import ToolCallError, ToolStatus
 
 TICKET_ID_PATTERN = r"^NXV-\d{6}$"
 
@@ -36,7 +37,7 @@ class TicketQuery(BaseModel):
 
 
 class TicketInfo(BaseModel):
-    """Salida: los mismos campos que expone `GET /api/incidents` (sin emails)."""
+    """Salida: los mismos campos que expone el gestor de incidentes (sin emails)."""
 
     ticket_id: str
     date: date
@@ -58,8 +59,9 @@ class TicketToolResult(BaseModel):
     duration_ms: float = 0.0
 
 
-def lookup_tickets(query: TicketQuery, *, client: httpx.Client | None = None) -> TicketToolResult:
-    """Consulta el gestor de incidentes. Nunca lanza: los fallos van en `status`."""
+def lookup_tickets(query: TicketQuery, *, call_tool: McpToolCaller | None = None) -> TicketToolResult:
+    """Consulta el gestor de incidentes vía MCP. Nunca lanza: los fallos van en `status`."""
+    call = call_tool or call_mcp_tool
     start = time.perf_counter()
 
     def done(status: ToolStatus, tickets: list[TicketInfo] | None = None, detail: str | None = None):
@@ -73,19 +75,15 @@ def lookup_tickets(query: TicketQuery, *, client: httpx.Client | None = None) ->
 
     try:
         if query.ticket_id:
-            payload = http_get(f"/api/incidents/{query.ticket_id}", authenticated=True, client=client)
+            payload = call("get_ticket", {"ticket_id": query.ticket_id})
             tickets = [TicketInfo.model_validate(payload)]
         else:
-            payload = http_get(
-                "/api/incidents",
-                params=query.model_dump(exclude={"ticket_id"}),
-                authenticated=True,
-                client=client,
-            )
-            tickets = [TicketInfo.model_validate(item) for item in payload]
+            filters = query.model_dump(exclude={"ticket_id"}, exclude_none=True)
+            payload = call("list_tickets", filters)
+            tickets = [TicketInfo.model_validate(item) for item in payload["tickets"]]
     except ToolCallError as exc:
         return done(exc.status, detail=exc.detail)
-    except (ValidationError, TypeError):
+    except (ValidationError, TypeError, KeyError):
         return done("error", detail="Respuesta del gestor de incidentes con formato inesperado")
 
     if not tickets:

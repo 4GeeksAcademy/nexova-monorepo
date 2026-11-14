@@ -46,7 +46,46 @@
 
 - Agente LangGraph Parte 2: abrir el PR `langgraph-external-tools` (adjuntar `ticket-status.json`, `rag-policy.json` y `docs/agent/eval-results.txt`) después de mergear la Parte 1 y hacer rebase sobre `main`. Indicar en el PR que `GET /inventory/products` no tiene auth y que `GET /api/incidents*` exige JWT. La tabla `incident` del Supabase compartido se creó y se cargó con `scripts/incidents-COMPANY.csv` (96 tickets válidos); si se resetea la base, volver a subir el CSV. La generación a veces parafrasea de más (p. ej. reinterpretó los hitos 30/30/40); vigilarlo en el prompt del RAG.
 
+- MCP Server (rama `feature/mcp-oauth-tools`): pendiente de validar con servicios reales.
+  - **Logto.** Configurar Logto Cloud siguiendo `mcps/nexova-tools/README.es.md`: API resource = URL pública del MCP con 3 permisos, app M2M `nexova-agent` (solo lectura) y app `nexova-playground` (3 permisos). Rellenar `.env`: `MCP_RESOURCE_URL`, `MCP_OAUTH_ISSUER`, `NEXOVA_API_EMAIL`/`PASSWORD` (crear el usuario de servicio con `POST /users`) y `AGENT_MCP_TOKEN_URL`/`CLIENT_ID`/`SECRET`.
+  - **Docker.** Construir y levantar el servicio `mcp` (la imagen no se ha construido todavía: Docker no estaba disponible en la máquina local).
+  - **Playground.** Probar en MCP Playground con el puerto 8100 público de Codespaces (un flujo por tool más el intento de escritura de inventario) y guardar capturas.
+  - **Agente y traces.** Repetir `POST /agent/query` (ticket, stock, política y mixta) y volver a grabar los traces reales con `scripts/agent_record_traces.py`.
+  - **PR.** Abrirlo explicando la elección de Streamable HTTP.
+  - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
+
 ## Historial de Avances
+- **[2026-11-14] MCP Server con OAuth y migración del agente (rama `feature/mcp-oauth-tools`):**
+  - **Backend.** `POST /api/incidents` y `PATCH /api/incidents/{id}/status` (`incidents_store.create_ticket`/`update_status`, `ALLOWED_TRANSITIONS`; 17 tests en `tests/incidents/`).
+  - **MCP Server.** `mcps/nexova-tools/` (FastMCP + MCP Auth/Logto, Streamable HTTP stateless):
+    - tools `list_tickets`, `get_ticket`, `create_ticket`, `update_ticket_status` y `query_inventory`;
+    - scopes por tool, códigos de error estables, auditoría JSON, CORS para clientes web, Dockerfile;
+    - 31 tests sin red (verificador JWT de producción con clave de prueba en lugar del JWKS).
+  - **Agente.** Consume el MCP con `langchain-mcp-adapters` y OAuth `client_credentials`; grafo y enrutamiento sin cambios.
+    - Se eliminaron el HTTP directo y el reenvío del JWT de quien llama.
+    - Nuevo `tests/pipelines/test_agent_mcp_client.py`: cliente real contra un MCP Server real en local con un token endpoint falso.
+  - **Infra.** `docker-compose.yml` (servicio `mcp` y variables `AGENT_MCP_*` en `api`) y `.env.example`, con confirmación del usuario.
+  - **Verificado:**
+    - suites de API 156 passed (`tests/pipelines` + `incidents` + `tasks` + `job_runner`) y MCP 31 passed;
+    - interoperabilidad manual entre el cliente del agente (mcp 1.30) y el servidor real (fastmcp 4 / mcp 2.3): lectura OK, `NOT_FOUND` → `not_found`, `create_ticket` con el token del agente → `FORBIDDEN_SCOPE`, sin token → `error`;
+    - `docker compose config` válido.
+  - **Pendiente:** Logto real, imagen Docker, Playground y traces reales.
+  - **Verificado en local [2026-11-14]** (Docker Desktop en Windows, Logto Cloud real, Supabase, túnel Cloudflare `trycloudflare.com` a 8100):
+    - Imagen `mcp` construida.
+    - La metadata pública devuelve el issuer de Logto.
+    - Sin token / token basura → 401 con `resource_metadata`.
+    - El token M2M del agente lleva solo `incidents:read inventory:read`: `list_tickets`/`get_ticket`/`query_inventory` OK, `NOT_FOUND`, y `create_ticket`/`update_ticket_status` → `FORBIDDEN_SCOPE`.
+    - `query_inventory` con `adjust_stock` → `READ_ONLY_RESOURCE`.
+    - Auditoría con el `client_id` de Logto.
+    - `POST /agent/query`: ticket → `tickets`, stock → `inventory`, política → `rag`, mixta → `tickets, rag`; enrutamiento LLM igual que antes.
+    - RAG reindexado en el Qdrant local (15 chunks).
+  - **Arreglo tras probar en MCP Playground:** su formulario envía `""` en los opcionales sin rellenar (`create_ticket` fallaba con `VALIDATION_ERROR` en `date`).
+    - Ahora `""` equivale a no informado en todos los parámetros opcionales (`models.blank_as`, `BeforeValidator`). Las restricciones se mueven al tipo interior para que no se apliquen a `None`.
+    - El JSON Schema publicado no cambia. Test nuevo (32 en total).
+  - **Falta:**
+    - Playground con un token de `nexova-playground` (tools de escritura con token real).
+    - Repetirlo en Codespaces para la entrega.
+    - **No commitear `services/api/data/users.json`/`profiles.json`**: están versionados y ahora contienen la cuenta de servicio local del MCP.
 - **[2026-11-12] Agente LangGraph — Parte 2 (rama `feature/langgraph-external-tools`):** gestor de incidentes con persistencia de tickets en Supabase (tabla `incident`) y `GET /api/incidents[/{id}]`; tools `lookup_tickets` y `lookup_inventory` (HTTP solo GET, timeout 4 s, fallback); nodo `route_question` (LLM + reglas) y aristas `next_step`; trace con `route` y `sources_used`. 33 evals de agente (`test_agent_evals.py` + `test_agent_tools_evals.py`) en verde; suite `tests/pipelines/` 75 passed, 2 skipped. Verificado en Docker por HTTP (ticket, política, stock, mixta, ticket inexistente, listado por cliente, pregunta vacía) y con timeout real (IP no enrutable → 4,0 s → `tool_fallback`). Diseño en `docs/agent/agent-design.md` (sección Parte 2).
 - **[2026-11-12] Swagger con token (misma rama de la Parte 2):** `security.py` pasa a `HTTPBearer`; `/docs` muestra un campo para pegar el JWT. Verificado: 401 sin token/token inválido/esquema Basic, 200 con token en `/auth/me`, `/api/incidents/{id}` y el proxy del backoffice; el agente sigue reenviando el JWT a la tool de tickets. Tests: `tests/pipelines` 75 passed, `tests/tasks` + `tests/job_runner` 40 passed.
 - **[2026-11-12] Agente LangGraph — Parte 1 (rama `feature/langgraph-agent-base`):** paquete `services/api/agent/` (estado, nodos, grafo, tracing, runner, router). Grafo compilado y validado al arrancar la API; checkpoints SQLite (5 por corrida) y trace JSON por corrida. `POST /agent/query` con JWT: 200 / 422 (pregunta vacía, detectada por el grafo) / 503 genérico / 401. 11 evals en `tests/pipelines/test_agent_evals.py` (8 de flujo con fakes + 3 de anclaje sobre traces reales grabados con Qdrant y los modelos de 4Geeks: regla del 22 % con aprobación de Marcos Ibáñez, facturación 30/30/40 y pregunta fuera de dominio → `no_information`). Suite `tests/pipelines/` completa: 53 passed, 2 skipped. El BRIEFING del enunciado no existe en el repo: el anclaje se verifica contra `docs/company-knowledge-base/`. Diseño en `docs/agent/agent-design.md`.
