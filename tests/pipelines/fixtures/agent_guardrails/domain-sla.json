@@ -1,0 +1,178 @@
+{
+  "run_id": "48bfecf5-82de-4aa1-b5b8-7bf7560c848e",
+  "thread_id": "48bfecf5-82de-4aa1-b5b8-7bf7560c848e",
+  "question": "¿Cómo reporta Nexova el cumplimiento de los SLAs de soporte?",
+  "started_at": "2026-11-15T22:31:46.372913+00:00",
+  "finished_at": "2026-11-15T22:31:59.704882+00:00",
+  "status": "completed",
+  "route": {
+    "rag": true,
+    "tickets": false,
+    "inventory": false,
+    "ticket_id": null,
+    "ticket_status": null,
+    "ticket_category": null,
+    "client_company": null,
+    "product": null,
+    "method": "llm"
+  },
+  "sources_used": [
+    "rag"
+  ],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "resolve_pending",
+    "load_memory",
+    "route_question",
+    "retrieve",
+    "generate",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:31:46.381778+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Cómo reporta Nexova el cumplimiento de los SLAs de soporte?",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:31:46.381778+00:00",
+      "duration_ms": 1.6,
+      "output": {
+        "guard": {
+          "category": "domain",
+          "action": "allow",
+          "failure_type": null,
+          "rule": null,
+          "rules": [],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "resolve_pending",
+      "started_at": "2026-11-15T22:31:46.384860+00:00",
+      "duration_ms": 1202.0,
+      "output": {
+        "memory_done": false
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "load_memory",
+      "started_at": "2026-11-15T22:31:47.587699+00:00",
+      "duration_ms": 153.9,
+      "output": {
+        "memory_facts": []
+      },
+      "error": null
+    },
+    {
+      "order": 5,
+      "node": "route_question",
+      "started_at": "2026-11-15T22:31:47.741431+00:00",
+      "duration_ms": 6537.6,
+      "output": {
+        "route": {
+          "rag": true,
+          "tickets": false,
+          "inventory": false,
+          "ticket_id": null,
+          "ticket_status": null,
+          "ticket_category": null,
+          "client_company": null,
+          "product": null,
+          "method": "llm"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 6,
+      "node": "retrieve",
+      "started_at": "2026-11-15T22:31:54.284326+00:00",
+      "duration_ms": 761.3,
+      "output": {
+        "context": [
+          {
+            "source_document": "service-lines",
+            "section": "Outsourcing de equipos de soporte al cliente",
+            "text": "Líneas de Servicio\n2. Outsourcing de equipos de soporte al cliente: Nexova contrata, entrena y\n   gestiona agentes de soporte que trabajan exclusivamente para el cliente,\n   bajo la marca del cliente. Incluye supervisión de calidad y reporting\n   mensual de SLAs. Tamaño mínimo de equipo contratable:"
+          },
+          {
+            "source_document": "hiring-process-sla",
+            "section": "Nexova no garantiza tiempos de entrega para búsquedas con requisitos de ubicaci…",
+            "text": "SLA del Proceso de Contratación\nNexova no garantiza tiempos de entrega para búsquedas con requisitos de\nubicación geográfica muy restrictivos (por ejemplo, un único candidato\ndisponible en una ciudad específica)."
+          },
+          {
+            "source_document": "service-lines",
+            "section": "Headhunting ejecutivo y de mandos medios",
+            "text": "Líneas de Servicio\nNexova opera tres líneas de negocio:\n1. Headhunting ejecutivo y de mandos medios: búsqueda y selección de\n   perfiles gerenciales y directivos. Incluye búsqueda directa, evaluación\n   por competencias, y verificación de referencias. Tiempo promedio de\n   entrega: 6 a 8 semanas des"
+          },
+          {
+            "source_document": "objection-handling",
+            "section": "¿Qué pasa si no estoy conforme con la terna presentada",
+            "text": "Manejo de Objeciones Comunes de Prospectos\n\"¿Qué pasa si no estoy conforme con la terna presentada?\"\nRespuesta: Nexova ofrece una ronda adicional de búsqueda sin costo si\nninguno de los candidatos de la terna inicial es aceptable, siempre que el\ncliente haya dado feedback específico sobre por qué no"
+          },
+          {
+            "source_document": "objection-handling",
+            "section": "¿Trabajan con empresas de mi mismo sector que sean competencia directa",
+            "text": "Manejo de Objeciones Comunes de Prospectos\n\"¿Trabajan con empresas de mi mismo sector que sean competencia directa?\"\nRespuesta: Nexova no toma búsquedas para dos empresas en conflicto directo\nde interés en el mismo proceso de selección simultáneamente, pero sí puede\nhaber trabajado con competidores "
+          }
+        ],
+        "sources_used": [
+          "rag"
+        ]
+      },
+      "error": null
+    },
+    {
+      "order": 7,
+      "node": "generate",
+      "started_at": "2026-11-15T22:31:55.046085+00:00",
+      "duration_ms": 4647.8,
+      "output": {
+        "answer": "Según nuestra documentación, Nexova realiza un reporte mensual del cumplimiento de los SLAs para el servicio de outsourcing de equipos de soporte al cliente, como parte de la supervisión de calidad que ofrecemos. Este informe se entrega al cliente y detalla los indicadores acordados. Si necesitas conocer más detalles sobre el contenido específico de los reportes, te recomiendo contactar a tu account manager de Nexova o al equipo de soporte interno.\n\nFuente: Líneas de Servicio - Outsourcing de equipos de soporte al cliente.",
+        "memory_candidate": null
+      },
+      "error": null
+    },
+    {
+      "order": 8,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:31:59.694630+00:00",
+      "duration_ms": 0.9,
+      "output": {
+        "answer": "Según nuestra documentación, Nexova realiza un reporte mensual del cumplimiento de los SLAs para el servicio de outsourcing de equipos de soporte al cliente, como parte de la supervisión de calidad que ofrecemos. Este informe se entrega al cliente y detalla los indicadores acordados. Si necesitas conocer más detalles sobre el contenido específico de los reportes, te recomiendo contactar a tu account manager de Nexova o al equipo de soporte interno.\n\nFuente: Líneas de Servicio - Outsourcing de equipos de soporte al cliente.",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Según nuestra documentación, Nexova realiza un reporte mensual del cumplimiento de los SLAs para el servicio de outsourcing de equipos de soporte al cliente, como parte de la supervisión de calidad que ofrecemos. Este informe se entrega al cliente y detalla los indicadores acordados. Si necesitas conocer más detalles sobre el contenido específico de los reportes, te recomiendo contactar a tu account manager de Nexova o al equipo de soporte interno.\n\nFuente: Líneas de Servicio - Outsourcing de equipos de soporte al cliente.",
+  "error": null,
+  "conversation_id": "49f49602-7413-4d44-bff4-17a9749a3f20",
+  "guard": {
+    "category": "domain",
+    "action": "allow",
+    "failure_type": null,
+    "rule": null,
+    "rules": [],
+    "method": "rules"
+  },
+  "guardrails": []
+}

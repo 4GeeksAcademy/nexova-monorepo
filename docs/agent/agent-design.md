@@ -310,3 +310,19 @@ START → receive_question ─┬─(vacía)→ reject → END
 - Con memoria, `generate` es la variante estructurada (respuesta + `propuesta_memoria` en una llamada) y `no_information` cede el paso a `generate` (`next_step_with_memory`), porque una corrección del usuario puede no estar en ninguna fuente.
 - `POST /agent/query` acepta `conversation_id` opcional y devuelve `conversation_id`, `memory_proposal` y `memory_decision`. El `thread_id` del checkpointer sigue siendo el `run_id`: la propuesta pendiente vive en Postgres, no en el checkpoint.
 - Memoria activa en producción salvo `AGENT_MEMORY_ENABLED=false` o sin `DATABASE_URL`.
+
+## Hito 8 · Parte 2 — Harness y guardrails
+
+El diseño completo (capas, tabla de decisión, casos de jailbreak, tenancy y observabilidad) está en [`guardrails-design.md`](guardrails-design.md); la evidencia con el agente real, en [`guardrails-evidence.md`](guardrails-evidence.md). Resumen del cambio en el grafo:
+
+```
+receive_question → guard_input ─┬─(bloqueo)→ guard_refuse ─┐
+                                ├─(casual)→ small_talk ────┤
+                                └→ resolve_pending → load_memory → route_question → … → generate ─┴→ guard_output → [propose_memory] → END
+```
+
+- El harness solo existe con `build_graph(guardrails=Guardrails(...))`; `get_agent_graph()` lo activa siempre. Sin él, la topología es la de la Parte 1.
+- El agente pasa a ser el de **soporte de primera línea** del BRIEFING: prompt `SUPPORT_SYSTEM_PROMPT` con separación de roles (`system` = instrucciones; `user` = `<datos_externos>` + `<mensaje_usuario>`). `/knowledge/query` mantiene el prompt de ventas del RAG.
+- `run_agent(..., tenant=Tenant(...))`: la API pasa siempre el del usuario autenticado (`User.client_company` + rol). La tool de tickets fuerza la empresa del usuario y responde `forbidden` a un usuario externo sin empresa.
+- `POST /agent/query` devuelve además `guardrail` (`action` + `category`) cuando el mensaje se rechazó o redirigió. `GET /agent/guardrails/summary` (personal interno) cuenta las activaciones.
+- El trace añade `guard` (veredicto de entrada) y `guardrails` (eventos de la corrida).

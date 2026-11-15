@@ -24,6 +24,13 @@ Memoria (solo con `build_graph(memory=...)`, ver `agent/memory/nodes.py`):
 - `memory_proposal` / `memory_blocked`: propuesta registrada como pendiente, o
   motivo por el que la política la bloqueó.
 
+Harness (solo con `build_graph(guardrails=...)`, ver `agent/guardrails/`):
+
+- `tenant`: empresa cliente de quien escribe y si es personal interno
+  (`Tenant.as_state()`); la tool de tickets lo aplica siempre.
+- `guard`: veredicto del guard de entrada (categoría, acción, tipo de fallo).
+- `output_blocked` / `output_rules`: resultado del guard de salida.
+
 No se guarda historial de conversación: cada consulta es independiente y
 arrastrarlo engordaría cada checkpoint sin que ningún nodo lo lea. Tampoco
 credenciales: el token OAuth de las tools vive solo en el cliente MCP
@@ -53,3 +60,8 @@ class AgentState(TypedDict, total=False):
     memory_candidate: dict[str, Any] | None
     memory_proposal: dict[str, Any] | None
     memory_blocked: str | None
+    # Harness
+    tenant: dict[str, Any]
+    guard: dict[str, Any]
+    output_blocked: bool
+    output_rules: list[str]

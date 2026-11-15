@@ -123,8 +123,13 @@ def _rag_llm():
     return get_llm_client(), generation_model()
 
 
+def strip_reasoning(text: str) -> str:
+    """Quita los bloques `<think>…</think>` que algunos modelos anteponen a la respuesta."""
+    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+
 def _extract_json(text: str) -> dict:
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = strip_reasoning(text)
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
         raise ValueError("El enrutador no devolvió JSON")
@@ -156,6 +161,9 @@ def classify_question(question: str, *, llm_classifier: Classifier = classify_wi
         decision = llm_classifier(question)
     except (ValidationError, ValueError, KeyError, TypeError) as exc:
         logger.warning("Enrutador LLM inválido (%s); se usan reglas", type(exc).__name__)
+        from agent.guardrails import events
+
+        events.emit("routing", "invalid_router_output", "fallback", "structural", origin="model")
         return classify_with_rules(question)
     except Exception as exc:  # LLM caído, timeout, credenciales…
         logger.warning("Enrutador LLM no disponible (%s); se usan reglas", type(exc).__name__)

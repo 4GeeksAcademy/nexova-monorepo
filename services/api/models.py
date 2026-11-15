@@ -206,6 +206,10 @@ class User(BaseModel):
     role: Role = Role.USER
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     password_changed_at: datetime | None = None
+    # Empresa cliente de outsourcing a la que pertenece el usuario (p. ej. "RetailMax Corp").
+    # El agente de soporte solo le muestra tickets de esa empresa; `None` en un usuario
+    # externo = sin acceso a tickets (ver `agent/guardrails/tenancy.py`).
+    client_company: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

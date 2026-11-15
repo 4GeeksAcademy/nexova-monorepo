@@ -14,6 +14,11 @@ primero, RAG después) o, si no queda ninguna, al nodo de respuesta:
 - `tool_fallback` si no hay datos y alguna tool falló o no encontró el recurso;
 - `no_information` si no hay datos y ninguna tool falló.
 
+Con `memory` se añaden los nodos de memoria (`agent/memory/nodes.py`) y con
+`guardrails` el harness (`agent/guardrails/nodes.py`): `guard_input` justo
+después de `receive_question`, `guard_refuse` / `small_talk` sin pasar por las
+fuentes, y `guard_output` antes de END (y antes de `propose_memory`).
+
 La compilación es explícita (`compile_graph`) y falla con `AgentGraphBuildError`
 ante un error estructural: los que detecta LangGraph (arista hacia un nodo
 inexistente, sin punto de entrada…) y los que no detecta (nodo inalcanzable
@@ -43,6 +48,7 @@ from agent.state import AgentState
 from agent.tracing import traced
 
 if TYPE_CHECKING:
+    from agent.guardrails import Guardrails
     from agent.memory.generation import StructuredGenerateFn
     from agent.memory.service import AgentMemory
 
@@ -151,6 +157,7 @@ def build_graph(
     checkpointer: BaseCheckpointSaver | None = None,
     memory: "AgentMemory | None" = None,
     structured_generate_fn: "StructuredGenerateFn | None" = None,
+    guardrails: "Guardrails | None" = None,
 ) -> CompiledStateGraph:
     """Construye y compila el grafo.
 
@@ -160,30 +167,40 @@ def build_graph(
     Con `memory` añade los nodos de memoria (`agent/memory/nodes.py`) y la
     generación estructurada (`structured_generate_fn`, por defecto
     `generate_with_memory`); sin él, la topología es la de la Parte 3.
+
+    Con `guardrails` añade el harness (`agent/guardrails/nodes.py`): guard de
+    entrada antes de todo, rechazo y small talk sin pasar por las fuentes,
+    contexto externo neutralizado, prompt de soporte seguro y guard de salida
+    antes de devolver (y antes de registrar una propuesta de memoria).
     """
-    if memory is None and (retrieve_fn is None or generate_fn is None):
-        from knowledge.pipeline_bridge import generate_answer, retrieve
+    if retrieve_fn is None:
+        from knowledge.pipeline_bridge import retrieve as retrieve_fn
+    if guardrails is not None:
+        from agent.guardrails import nodes as guard_nodes
+        from agent.guardrails.generation import secure_generate, secure_structured_generate
 
-        retrieve_fn = retrieve_fn or retrieve
-        generate_fn = generate_fn or generate_answer
-    elif retrieve_fn is None:
-        from knowledge.pipeline_bridge import retrieve
+        generate_fn = generate_fn or secure_generate
+        if memory is not None and structured_generate_fn is None:
+            structured_generate_fn = secure_structured_generate()
+    elif memory is None and generate_fn is None:
+        from knowledge.pipeline_bridge import generate_answer as generate_fn
 
-        retrieve_fn = retrieve
-
+    context_fn = guard_nodes.secure_generation_context if guardrails is not None else None
     node_fns: dict[str, Any] = {
         nodes.RECEIVE_QUESTION: nodes.receive_question,
         nodes.ROUTE_QUESTION: nodes.make_route_node(classify_fn or classify_question),
         nodes.LOOKUP_TICKETS: nodes.make_tickets_node(ticket_tool or lookup_tickets),
         nodes.LOOKUP_INVENTORY: nodes.make_inventory_node(inventory_tool or lookup_inventory),
-        nodes.RETRIEVE: nodes.make_retrieve_node(retrieve_fn),
+        nodes.RETRIEVE: nodes.make_retrieve_node(
+            retrieve_fn, guard_nodes.restricted_retrieve_filter if guardrails is not None else None
+        ),
         nodes.TOOL_FALLBACK: nodes.tool_fallback,
         nodes.NO_INFORMATION: nodes.no_information,
         nodes.REJECT: nodes.reject,
     }
     step_fn = next_step
     if memory is None:
-        node_fns[nodes.GENERATE] = nodes.make_generate_node(generate_fn)
+        node_fns[nodes.GENERATE] = nodes.make_generate_node(generate_fn, context_fn)
     else:
         from agent.memory import nodes as memory_nodes
         from agent.memory.generation import generate_with_memory
@@ -194,32 +211,56 @@ def build_graph(
             memory_nodes.MEMORY_ACK: memory_nodes.memory_ack,
             memory_nodes.LOAD_MEMORY: memory_nodes.make_load_memory_node(memory),
             nodes.GENERATE: memory_nodes.make_structured_generate_node(
-                structured_generate_fn or generate_with_memory
+                structured_generate_fn or generate_with_memory, context_fn
             ),
             memory_nodes.PROPOSE_MEMORY: memory_nodes.make_propose_memory_node(memory),
+        })
+    if guardrails is not None:
+        node_fns.update({
+            guard_nodes.GUARD_INPUT: guard_nodes.make_guard_input_node(guardrails),
+            guard_nodes.GUARD_REFUSE: guard_nodes.guard_refuse,
+            guard_nodes.SMALL_TALK: guard_nodes.make_small_talk_node(guardrails),
+            guard_nodes.GUARD_OUTPUT: guard_nodes.guard_output,
+            nodes.NO_INFORMATION: guard_nodes.support_no_information,
         })
 
     builder = StateGraph(AgentState)
     for name, fn in node_fns.items():
         builder.add_node(name, traced(name, fn))
 
+    # Tras recibir la pregunta: guard de entrada (si hay harness) → memoria (si hay) → enrutador.
+    after_guard = memory_nodes.RESOLVE_PENDING if memory is not None else nodes.ROUTE_QUESTION
+    first = guard_nodes.GUARD_INPUT if guardrails is not None else after_guard
     builder.add_edge(START, nodes.RECEIVE_QUESTION)
-    if memory is None:
+    builder.add_conditional_edges(
+        nodes.RECEIVE_QUESTION, lambda s: nodes.REJECT if s.get("error") else first, [first, nodes.REJECT]
+    )
+    if guardrails is not None:
+        def route_after_guard(state: AgentState) -> str:
+            if guard_nodes.is_blocked(state):
+                return guard_nodes.GUARD_REFUSE
+            # Con memoria, lo casual pasa antes por la propuesta pendiente ("sí, guárdalo", "vale").
+            if guard_nodes.is_casual(state) and memory is None:
+                return guard_nodes.SMALL_TALK
+            return after_guard
+
         builder.add_conditional_edges(
-            nodes.RECEIVE_QUESTION, route_after_receive, [nodes.ROUTE_QUESTION, nodes.REJECT]
+            guard_nodes.GUARD_INPUT, route_after_guard,
+            sorted({guard_nodes.GUARD_REFUSE, guard_nodes.SMALL_TALK, after_guard}),
         )
-    else:
+    if memory is not None:
         # Primero se resuelve la propuesta pendiente; después se lee la memoria y se enruta.
-        builder.add_conditional_edges(
-            nodes.RECEIVE_QUESTION,
-            lambda s: nodes.REJECT if s.get("error") else memory_nodes.RESOLVE_PENDING,
-            [memory_nodes.RESOLVE_PENDING, nodes.REJECT],
-        )
-        builder.add_conditional_edges(
-            memory_nodes.RESOLVE_PENDING,
-            memory_nodes.route_after_resolve,
-            [memory_nodes.MEMORY_ACK, memory_nodes.LOAD_MEMORY],
-        )
+        def after_resolve(state: AgentState) -> str:
+            step = memory_nodes.route_after_resolve(state)
+            if (guardrails is not None and step == memory_nodes.LOAD_MEMORY
+                    and guard_nodes.is_casual(state) and not state.get("memory_decision")):
+                return guard_nodes.SMALL_TALK
+            return step
+
+        resolve_targets = [memory_nodes.MEMORY_ACK, memory_nodes.LOAD_MEMORY]
+        if guardrails is not None:
+            resolve_targets.append(guard_nodes.SMALL_TALK)
+        builder.add_conditional_edges(memory_nodes.RESOLVE_PENDING, after_resolve, resolve_targets)
         builder.add_edge(memory_nodes.LOAD_MEMORY, nodes.ROUTE_QUESTION)
     # Cada nodo solo puede avanzar hacia fuentes posteriores o hacia la respuesta.
     builder.add_conditional_edges(
@@ -232,13 +273,34 @@ def build_graph(
     )
     builder.add_conditional_edges(nodes.LOOKUP_INVENTORY, step_fn, [nodes.RETRIEVE, *_ANSWER_NODES])
     builder.add_conditional_edges(nodes.RETRIEVE, step_fn, _ANSWER_NODES)
-    terminals = [*_ANSWER_NODES, nodes.REJECT]
+
+    # Nodos que producen la respuesta. Con harness, todos pasan por `guard_output`;
+    # con memoria, la propuesta se registra DESPUÉS de validar la respuesta.
+    answers = [nodes.TOOL_FALLBACK, nodes.NO_INFORMATION, nodes.GENERATE]
     if memory is not None:
-        terminals = [nodes.TOOL_FALLBACK, nodes.NO_INFORMATION, nodes.REJECT,
-                     memory_nodes.MEMORY_ACK, memory_nodes.PROPOSE_MEMORY]
-        builder.add_edge(nodes.GENERATE, memory_nodes.PROPOSE_MEMORY)
-    for terminal in terminals:
-        builder.add_edge(terminal, END)
+        answers.append(memory_nodes.MEMORY_ACK)
+    if guardrails is not None:
+        answers += [guard_nodes.GUARD_REFUSE, guard_nodes.SMALL_TALK]
+        for node in answers:
+            builder.add_edge(node, guard_nodes.GUARD_OUTPUT)
+        if memory is not None:
+            builder.add_conditional_edges(
+                guard_nodes.GUARD_OUTPUT,
+                lambda s: (memory_nodes.PROPOSE_MEMORY
+                           if s.get("memory_candidate") and not s.get("output_blocked") else END),
+                [memory_nodes.PROPOSE_MEMORY, END],
+            )
+            builder.add_edge(memory_nodes.PROPOSE_MEMORY, END)
+        else:
+            builder.add_edge(guard_nodes.GUARD_OUTPUT, END)
+    else:
+        if memory is not None:
+            answers.remove(nodes.GENERATE)
+            answers.append(memory_nodes.PROPOSE_MEMORY)
+            builder.add_edge(nodes.GENERATE, memory_nodes.PROPOSE_MEMORY)
+        for node in answers:
+            builder.add_edge(node, END)
+    builder.add_edge(nodes.REJECT, END)
 
     return compile_graph(builder, checkpointer)
 
@@ -258,4 +320,7 @@ def get_agent_graph() -> CompiledStateGraph:
         from agent.memory.store import PostgresMemoryStore
 
         memory = AgentMemory(PostgresMemoryStore())
-    return build_graph(checkpointer=sqlite_checkpointer(), memory=memory)
+    from agent.guardrails import Guardrails
+
+    # El harness está siempre activo en producción (ticket #SEC-114).
+    return build_graph(checkpointer=sqlite_checkpointer(), memory=memory, guardrails=Guardrails())

@@ -1,0 +1,100 @@
+{
+  "run_id": "63162a60-8f92-4c4d-b08a-d0a05016afb0",
+  "thread_id": "63162a60-8f92-4c4d-b08a-d0a05016afb0",
+  "question": "¿Qué tickets abiertos tiene InsureNow Group?",
+  "started_at": "2026-11-15T22:32:10.223023+00:00",
+  "finished_at": "2026-11-15T22:32:10.252612+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "guard_refuse",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:32:10.224562+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Qué tickets abiertos tiene InsureNow Group?",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:32:10.226098+00:00",
+      "duration_ms": 1.4,
+      "output": {
+        "guard": {
+          "category": "cross_tenant",
+          "action": "block",
+          "failure_type": "security",
+          "rule": "other_client_data",
+          "rules": [
+            "other_client_data"
+          ],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "guard_refuse",
+      "started_at": "2026-11-15T22:32:10.228644+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "Solo puedo darte información de la cuenta con la que has iniciado sesión: no comparto tickets, SLAs ni datos de otras empresas cliente. ¿Quieres que revise algo de tu propia cuenta?"
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:32:10.228644+00:00",
+      "duration_ms": 0.5,
+      "output": {
+        "answer": "Solo puedo darte información de la cuenta con la que has iniciado sesión: no comparto tickets, SLAs ni datos de otras empresas cliente. ¿Quieres que revise algo de tu propia cuenta?",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Solo puedo darte información de la cuenta con la que has iniciado sesión: no comparto tickets, SLAs ni datos de otras empresas cliente. ¿Quieres que revise algo de tu propia cuenta?",
+  "error": null,
+  "conversation_id": "3cf17a01-7adc-497a-8efb-72aad03a389b",
+  "guard": {
+    "category": "cross_tenant",
+    "action": "block",
+    "failure_type": "security",
+    "rule": "other_client_data",
+    "rules": [
+      "other_client_data"
+    ],
+    "method": "rules"
+  },
+  "guardrails": [
+    {
+      "guard": "input",
+      "rule": "other_client_data",
+      "action": "block",
+      "failure_type": "security",
+      "origin": "user",
+      "category": "cross_tenant",
+      "excerpt": "¿Qué tickets abiertos tiene InsureNow Group?",
+      "ts": "2026-11-15T22:32:10.226098+00:00",
+      "run_id": "63162a60-8f92-4c4d-b08a-d0a05016afb0",
+      "conversation_id": "3cf17a01-7adc-497a-8efb-72aad03a389b",
+      "user_id": "demo-cliente-retailmax"
+    }
+  ]
+}

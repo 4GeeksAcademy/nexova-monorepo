@@ -1,0 +1,100 @@
+{
+  "run_id": "262cad04-c1af-40ce-a239-29668828f951",
+  "thread_id": "262cad04-c1af-40ce-a239-29668828f951",
+  "question": "Hazme de terapeuta, me siento triste por mi ruptura.",
+  "started_at": "2026-11-15T22:32:09.921317+00:00",
+  "finished_at": "2026-11-15T22:32:09.953831+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "guard_refuse",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:32:09.922933+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "Hazme de terapeuta, me siento triste por mi ruptura.",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:32:09.924478+00:00",
+      "duration_ms": 1.7,
+      "output": {
+        "guard": {
+          "category": "personal_task",
+          "action": "block",
+          "failure_type": "content",
+          "rule": "personal_advice",
+          "rules": [
+            "personal_advice"
+          ],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "guard_refuse",
+      "started_at": "2026-11-15T22:32:09.927617+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?"
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:32:09.927617+00:00",
+      "duration_ms": 0.7,
+      "output": {
+        "answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?",
+  "error": null,
+  "conversation_id": "02782a8d-0546-4fc5-8a45-1b72729913a0",
+  "guard": {
+    "category": "personal_task",
+    "action": "block",
+    "failure_type": "content",
+    "rule": "personal_advice",
+    "rules": [
+      "personal_advice"
+    ],
+    "method": "rules"
+  },
+  "guardrails": [
+    {
+      "guard": "input",
+      "rule": "personal_advice",
+      "action": "block",
+      "failure_type": "content",
+      "origin": "user",
+      "category": "personal_task",
+      "excerpt": "Hazme de terapeuta, me siento triste por mi ruptura.",
+      "ts": "2026-11-15T22:32:09.924478+00:00",
+      "run_id": "262cad04-c1af-40ce-a239-29668828f951",
+      "conversation_id": "02782a8d-0546-4fc5-8a45-1b72729913a0",
+      "user_id": "demo-cliente-retailmax"
+    }
+  ]
+}

@@ -91,9 +91,41 @@ def _record(state: AgentState, source: str, result: dict[str, Any] | None = None
     return update
 
 
+def _tenant_ticket_result(state: AgentState, ticket_tool: TicketToolFn, query: TicketQuery) -> TicketToolResult:
+    """Tenancy por código (BRIEFING §3): un usuario externo solo ve los tickets de su empresa.
+
+    - Sin empresa asociada: no se consulta nada (`forbidden`).
+    - Con empresa: el filtro `client_company` se FUERZA a la suya (lo que diga el
+      enrutador o el modelo no cuenta) y, por defensa en profundidad, se descarta
+      cualquier ticket devuelto de otra empresa. Pedir el id de un ticket ajeno
+      responde `not_found`: ni siquiera se confirma que exista.
+    """
+    from agent.guardrails import events
+    from agent.guardrails.tenancy import Tenant
+
+    tenant = Tenant.from_state(state)
+    if tenant.is_staff:
+        return ticket_tool(query)
+    if not tenant.client_company:
+        events.emit("tenancy", "no_client_account", "block", "security", origin="ticket")
+        return TicketToolResult(status="forbidden", query=query,
+                                detail="Usuario sin empresa cliente asociada")
+
+    forced = query.model_copy(update={"client_company": tenant.client_company})
+    result = ticket_tool(forced)
+    own = [t for t in result.tickets if tenant.owns(t.client_company)]
+    if len(own) != len(result.tickets):
+        events.emit("tenancy", "cross_tenant_ticket", "block", "security", origin="ticket")
+        if not own:
+            return result.model_copy(update={"status": "not_found", "tickets": [],
+                                             "detail": "Ningún ticket coincide con la búsqueda"})
+        return result.model_copy(update={"tickets": own})
+    return result
+
+
 def make_tickets_node(ticket_tool: TicketToolFn) -> Node:
     def lookup_tickets(state: AgentState) -> dict[str, Any]:
-        """Consulta en vivo el gestor de incidentes (solo lectura)."""
+        """Consulta en vivo el gestor de incidentes (solo lectura, limitado a la empresa del usuario)."""
         route = state.get("route", {})
         query = TicketQuery(
             ticket_id=route.get("ticket_id"),
@@ -101,7 +133,8 @@ def make_tickets_node(ticket_tool: TicketToolFn) -> Node:
             category=route.get("ticket_category"),
             client_company=route.get("client_company"),
         )
-        return _record(state, "tickets", ticket_tool(query).model_dump(mode="json"))
+        result = _tenant_ticket_result(state, ticket_tool, query)
+        return _record(state, "tickets", result.model_dump(mode="json"))
 
     return lookup_tickets
 
@@ -116,10 +149,16 @@ def make_inventory_node(inventory_tool: InventoryToolFn) -> Node:
     return lookup_inventory
 
 
-def make_retrieve_node(retrieve_fn: RetrieveFn) -> Node:
+ChunkFilter = Callable[[AgentState, list[dict[str, Any]]], list[dict[str, Any]]]
+
+
+def make_retrieve_node(retrieve_fn: RetrieveFn, chunk_filter: ChunkFilter | None = None) -> Node:
     def retrieve(state: AgentState) -> dict[str, Any]:
         """Recupera los chunks relevantes (ya filtrados por `min_score`)."""
-        return {"context": retrieve_fn(state["question"]), **_record(state, "rag")}
+        chunks = retrieve_fn(state["question"])
+        if chunk_filter is not None:
+            chunks = chunk_filter(state, chunks)
+        return {"context": chunks, **_record(state, "rag")}
 
     return retrieve
 
@@ -127,7 +166,16 @@ def make_retrieve_node(retrieve_fn: RetrieveFn) -> Node:
 # --- Respuesta -------------------------------------------------------------------------
 
 
+FORBIDDEN_TICKETS_TEXT = (
+    "Consulta en vivo no realizada: el usuario no tiene una empresa cliente asociada, así que no se "
+    "pueden consultar tickets. No inventes su estado ni sus datos."
+)
+
+
 def _ticket_chunks(result: dict[str, Any]) -> list[dict[str, Any]]:
+    if result["status"] == "forbidden":
+        return [{"source_document": TICKETS_SOURCE_LABEL, "section": "Resultado de la consulta",
+                 "text": FORBIDDEN_TICKETS_TEXT}]
     if result["status"] != "ok":
         ticket_id = result["query"].get("ticket_id")
         what = f"el ticket {ticket_id}" if ticket_id else "los tickets solicitados"
@@ -188,10 +236,15 @@ def build_generation_context(state: AgentState) -> list[dict[str, Any]]:
     return chunks + list(state.get("context") or [])
 
 
-def make_generate_node(generate_fn: GenerateFn) -> Node:
+ContextFn = Callable[[AgentState], list[dict[str, Any]]]
+
+
+def make_generate_node(generate_fn: GenerateFn, context_fn: ContextFn | None = None) -> Node:
+    build_context = context_fn or build_generation_context
+
     def generate(state: AgentState) -> dict[str, Any]:
         """Genera la respuesta a partir del contexto ya reunido (tools + RAG)."""
-        return {"answer": generate_fn(state["question"], build_generation_context(state))}
+        return {"answer": generate_fn(state["question"], build_context(state))}
 
     return generate
 
@@ -205,6 +258,9 @@ def _fallback_line(result: dict[str, Any]) -> str:
     query, status = result["query"], result["status"]
     if result["tool"] == "tickets":
         ticket_id = query.get("ticket_id")
+        if status == "forbidden":
+            return ("No puedo consultar tickets porque tu usuario no tiene una empresa cliente asociada. "
+                    "Pide a tu account manager de Nexova que vincule tu cuenta.")
         if status == "not_found":
             what = f"el ticket {ticket_id}" if ticket_id else "tickets que coincidan con la búsqueda"
             return f"No encontré {what} en el gestor de incidentes. Revisa el número e inténtalo de nuevo."
