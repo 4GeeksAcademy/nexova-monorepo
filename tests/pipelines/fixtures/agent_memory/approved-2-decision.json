@@ -1,0 +1,72 @@
+{
+  "run_id": "851a1adb-830f-422a-8ae7-c86e5444a31a",
+  "thread_id": "851a1adb-830f-422a-8ae7-c86e5444a31a",
+  "question": "Sí, guárdalo.",
+  "started_at": "2026-11-15T10:41:32.543100+00:00",
+  "finished_at": "2026-11-15T10:41:36.621403+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "resolve_pending",
+    "memory_ack"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T10:41:32.545638+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "Sí, guárdalo.",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "resolve_pending",
+      "started_at": "2026-11-15T10:41:32.546688+00:00",
+      "duration_ms": 4056.3,
+      "output": {
+        "memory_decision": {
+          "proposal_id": "8849aba8-d460-464b-94bc-c44e56ebcf09",
+          "outcome": "approved",
+          "label": "approve",
+          "fact_id": "2b7ae502-c40e-4780-9a1e-50b807a0f603"
+        },
+        "memory_notice": "Guardado en la memoria del equipo: «Los tickets de nómina para clientes de retail se resuelven en 24 horas.».",
+        "memory_done": true
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "memory_ack",
+      "started_at": "2026-11-15T10:41:36.604415+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "Guardado en la memoria del equipo: «Los tickets de nómina para clientes de retail se resuelven en 24 horas.».",
+        "memory_notice": null
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Guardado en la memoria del equipo: «Los tickets de nómina para clientes de retail se resuelven en 24 horas.».",
+  "error": null,
+  "conversation_id": "08357eed-a3be-4f67-9d0c-16e53ac3fb5a",
+  "memory": {
+    "facts_used": [],
+    "decision": {
+      "proposal_id": "8849aba8-d460-464b-94bc-c44e56ebcf09",
+      "outcome": "approved",
+      "label": "approve",
+      "fact_id": "2b7ae502-c40e-4780-9a1e-50b807a0f603"
+    },
+    "proposal": null,
+    "blocked": null
+  }
+}

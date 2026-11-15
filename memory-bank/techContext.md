@@ -43,6 +43,14 @@
   - **Cliente del agente.** El agente es cliente MCP (`agent/tools/mcp_client.py`, `langchain-mcp-adapters`) con token M2M `client_credentials` (solo `incidents:read inventory:read`).
     - El grafo sigue siendo síncrono: `asyncio.run` + timeout por llamada.
     - Se eliminaron `http_get`, `AGENT_TOOLS_BASE_URL`, `INCIDENTS_API_TOKEN` y el reenvío del JWT de quien llama.
+- Memoria del agente (Hito 8 · Parte 1, `services/api/agent/memory/`, ver `docs/agent/memory-design.md`):
+  - **Tipo y store.** Hechos aprobados estructurados (`business_line` × `category`), compartidos por la organización, en Postgres/Supabase: `agent_memory_proposals`, `agent_memory_entries` y `agent_memory_audit`, de la migración `007_agent_memory.sql` (aplicada a mano, fuera de `SQLModel.metadata`). Nunca en Qdrant ni en `nexova_knowledge`, que sigue siendo de solo lectura.
+  - **Interfaz.** `MemoryStore` (Postgres / en memoria para tests) y `AgentMemory` como única puerta.
+  - **Grafo.** Nodos opcionales (`build_graph(memory=...)`): `resolve_pending` → `load_memory` → … → `generate` estructurado (respuesta + `propuesta_memoria` en una llamada) → `propose_memory`. Sin memoria, la topología de la Parte 3 no cambia.
+  - **Decisión.** Clasificador LLM con etiqueta y confianza (≥ 0,7 para escribir); en la duda se descarta. Una pendiente por conversación (índice único parcial). Caduca a las 24 h.
+  - **Política del BRIEFING** por código (`policy.py`), antes de proponer y antes de escribir.
+  - **Consolidación** (`consolidation.py`): deduplicación y reemplazo léxico (Jaccard; las cifras distintas son una corrección), TTL de 90 días sin uso y topes de 25 por cubo y 150 en total. Nada se borra: los estados son `superseded` y `expired`.
+  - **API.** `POST /agent/query` acepta y devuelve `conversation_id`. Memoria activa salvo `AGENT_MEMORY_ENABLED=false`.
 - Autenticación de la API: esquema `HTTPBearer` (`security.bearer_scheme` + `get_bearer_token`) en lugar de `OAuth2PasswordBearer`, para que Swagger (`/docs` → Authorize) acepte pegar el `access_token` de `POST /auth/login` (que recibe JSON, no form-data). Sin cabecera o con token inválido sigue respondiendo 401 + `WWW-Authenticate: Bearer`; el backoffice no cambia.
 
 ## Restricciones técnicas

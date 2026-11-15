@@ -177,10 +177,14 @@ def _inventory_chunks(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def build_generation_context(state: AgentState) -> list[dict[str, Any]]:
-    """Datos en vivo de las tools (en el orden consultado) + chunks del RAG."""
+    """Datos en vivo de las tools (en el orden consultado) + memoria aprobada + chunks del RAG."""
     chunks: list[dict[str, Any]] = []
     for result in state.get("tool_results", []):
         chunks += _ticket_chunks(result) if result["tool"] == "tickets" else _inventory_chunks(result)
+    if state.get("memory_facts"):
+        from agent.memory.service import memory_chunks
+
+        chunks += memory_chunks(state["memory_facts"])
     return chunks + list(state.get("context") or [])
 
 
