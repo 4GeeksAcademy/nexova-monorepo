@@ -18,6 +18,13 @@ TicketStatus = Literal[
     "terminado",
 ]
 DepartmentId = Literal["seleccion", "capacitacion", "soporte"]
+SectionStatus = Literal["generando", "evaluando", "evaluada_ok", "needs_human_review"]
+
+
+class RfpDraftingAccepted(BaseModel):
+    ticket_id: str
+    status: TicketStatus
+    task_id: str
 
 
 class RfpTicketAccepted(BaseModel):
@@ -37,6 +44,7 @@ class RfpTicketSummary(BaseModel):
     departments_needed: list[DepartmentId] = Field(default_factory=list)
     error_message: str | None = None
     attempts: int = 0
+    ready_for_approval: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -68,6 +76,13 @@ class DepartmentSectionRead(BaseModel):
     figures_cited: list[dict[str, Any]] = Field(default_factory=list)
     excerpts: list[str] = Field(default_factory=list)
     approval_status: str | None = None
+    # Parte 2: borrador y EvaluationResult del ciclo generador-evaluador.
+    section_status: SectionStatus | None = None
+    draft_content: str | None = None
+    evaluation_results: dict[str, Any] | None = None
+    iteration_count: int = 0
+    iteration_history: list[dict[str, Any]] = Field(default_factory=list)
+    generated_at: datetime | None = None
 
 
 class RfpTicketDetail(RfpTicketSummary):
@@ -76,5 +91,6 @@ class RfpTicketDetail(RfpTicketSummary):
     synthesis: dict[str, Any] | None = None
     handoff_payload: dict[str, Any] | None = None
     ready_for_drafting: bool = False
+    approval_handoff: dict[str, Any] | None = None
     metadata: RfpMetadataRead | None = None
     sections: list[DepartmentSectionRead] = Field(default_factory=list)

@@ -115,3 +115,90 @@ def test_queue_down_returns_503_and_ticket_shows_the_error(ctx, monkeypatch):
     ticket = ctx.store.list_tickets()[0]
     assert ticket["status"] == "analizando"
     assert "cola" in ticket["error_message"]
+
+
+# --------------------------------------------------------------------------- #
+# Parte 2: regeneración de borradores y encadenado automático
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def drafting_queue(ctx, monkeypatch):
+    enqueued: list[dict] = []
+
+    def fake_apply_async(kwargs):
+        enqueued.append(kwargs)
+        return SimpleNamespace(id="draft-task-1")
+
+    monkeypatch.setattr(ctx.router.generate_rfp_responses, "apply_async", fake_apply_async)
+    return enqueued
+
+
+def test_regenerate_drafts_returns_202_for_ticket_with_part1_handoff(ctx, drafting_queue):
+    from drafting_fakes import SOPORTE_WS, make_ready_ticket
+
+    ticket_id = make_ready_ticket(ctx.store, [SOPORTE_WS], client_hq="Miami", currency="USD")
+    response = ctx.client.post(f"/rfp/tickets/{ticket_id}/drafts")
+
+    assert response.status_code == 202
+    assert response.json() == {"ticket_id": ticket_id, "status": "analisis_completo", "task_id": "draft-task-1"}
+    assert drafting_queue == [{"ticket_id": ticket_id}]
+
+
+def test_regenerate_drafts_without_part1_handoff_is_409(ctx, drafting_queue):
+    ticket_id = _upload(ctx.client).json()["ticket_id"]  # sigue en `analizando`
+    response = ctx.client.post(f"/rfp/tickets/{ticket_id}/drafts")
+    assert response.status_code == 409
+    assert drafting_queue == []
+
+
+def test_regenerate_drafts_while_in_progress_is_409(ctx, drafting_queue):
+    from drafting_fakes import SOPORTE_WS, make_ready_ticket
+
+    ticket_id = make_ready_ticket(ctx.store, [SOPORTE_WS], client_hq="Miami", currency="USD")
+    ctx.store.start_drafting(ticket_id, ["soporte"])
+    assert ctx.client.post(f"/rfp/tickets/{ticket_id}/drafts").status_code == 409
+    assert ctx.client.post("/rfp/tickets/RFP-NOPE/drafts").status_code == 404
+
+
+def test_detail_exposes_drafts_and_evaluation(ctx):
+    from drafting_fakes import GOOD_SOPORTE, PASS_RELEVANCE, SOPORTE_WS, fake_llm, make_ready_ticket, no_knowledge, section
+    from rfp_drafting import run_drafting
+
+    ticket_id = make_ready_ticket(ctx.store, [SOPORTE_WS], client_hq="Miami", currency="USD")
+    run_drafting(ticket_id, store=ctx.store, knowledge_fn=no_knowledge, clients_fn=lambda: [],
+                 llm=fake_llm(generate_soporte=section(GOOD_SOPORTE), relevance_soporte=PASS_RELEVANCE))
+
+    body = ctx.client.get(f"/rfp/tickets/{ticket_id}").json()
+    assert body["status"] == "en_evaluación" and body["ready_for_approval"] is True
+    sec = body["sections"][0]
+    assert sec["section_status"] == "evaluada_ok" and sec["iteration_count"] == 1
+    assert sec["evaluation_results"]["compliance"]["pass"] is True
+    assert body["approval_handoff"]["contract_version"] == "rfp_drafting.v1"
+
+
+def test_part1_success_enqueues_part2_automatically(ctx, monkeypatch):
+    from rfp import pipeline_bridge
+    from tasks import rfp as rfp_tasks
+
+    monkeypatch.setattr(pipeline_bridge, "run_intake",
+                        lambda ticket_id, store: {"ticket_id": ticket_id, "status": "analisis_completo"})
+    enqueued: list[dict] = []
+    monkeypatch.setattr(rfp_tasks.generate_rfp_responses, "apply_async",
+                        lambda kwargs: enqueued.append(kwargs) or SimpleNamespace(id="draft-task-2"))
+
+    result = rfp_tasks.run_rfp_intake.apply(kwargs={"ticket_id": "RFP-AUTO"}).get()
+
+    assert result["drafting_task_id"] == "draft-task-2"
+    assert enqueued == [{"ticket_id": "RFP-AUTO"}]
+
+
+def test_discarded_rfp_does_not_enqueue_part2(ctx, monkeypatch):
+    from rfp import pipeline_bridge
+    from tasks import rfp as rfp_tasks
+
+    monkeypatch.setattr(pipeline_bridge, "run_intake",
+                        lambda ticket_id, store: {"ticket_id": ticket_id, "status": "descartado"})
+    monkeypatch.setattr(rfp_tasks.generate_rfp_responses, "apply_async",
+                        lambda kwargs: pytest.fail("no debe encolar la Parte 2"))
+
+    result = rfp_tasks.run_rfp_intake.apply(kwargs={"ticket_id": "RFP-NO"}).get()
+    assert "drafting_task_id" not in result

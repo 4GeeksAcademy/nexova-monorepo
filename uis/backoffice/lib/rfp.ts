@@ -29,6 +29,8 @@ export interface RfpTicketSummary {
   departments_needed: DepartmentId[];
   error_message: string | null;
   attempts: number;
+  /** Parte 2 terminada: borradores evaluados y handoff listo para la Parte 3. */
+  ready_for_approval: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -74,6 +76,28 @@ export interface DepartmentSection {
   open_questions: string[];
   figures_cited: Figure[];
   excerpts: string[];
+  section_status: SectionStatus | null;
+  draft_content: string | null;
+  evaluation: EvaluationResult | null;
+  iteration_count: number;
+}
+
+export type SectionStatus = "generando" | "evaluando" | "evaluada_ok" | "needs_human_review";
+
+export interface Violation {
+  rule_id: string;
+  message: string;
+  evidence: string | null;
+}
+
+/** `EvaluationResult` de la Parte 2 (legibilidad / pertinencia / cumplimiento). */
+export interface EvaluationResult {
+  iteration: number;
+  readability: { pass: boolean; score: number | null; problems: string[] };
+  relevance: { pass: boolean; missing_aspects: string[] };
+  compliance: { pass: boolean; rule_ids: string[]; violations: Violation[] };
+  overall_pass: boolean;
+  feedback_for_generator: string;
 }
 
 export interface Classification {
@@ -96,6 +120,8 @@ export interface Synthesis {
 }
 
 export interface RfpTicketDetail extends RfpTicketSummary {
+  /** `max_iterations` del handoff de la Parte 2 (null hasta que termina). */
+  approval_max_iterations: number | null;
   classification: Classification | null;
   metadata: RfpMetadata | null;
   sections: DepartmentSection[];
@@ -143,6 +169,7 @@ const STATUSES: readonly TicketStatus[] = [
   "terminado",
 ];
 const DEPARTMENT_IDS: readonly DepartmentId[] = ["seleccion", "capacitacion", "soporte"];
+const SECTION_STATUSES: readonly SectionStatus[] = ["generando", "evaluando", "evaluada_ok", "needs_human_review"];
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -214,6 +241,7 @@ export function parseTicketSummary(raw: unknown): RfpTicketSummary {
     departments_needed: departments(raw, "departments_needed"),
     error_message: optStr(raw, "error_message"),
     attempts: attempts ?? 0,
+    ready_for_approval: raw.ready_for_approval === true,
     created_at: str(raw, "created_at"),
     updated_at: str(raw, "updated_at"),
   };
@@ -267,6 +295,54 @@ function parseSection(raw: unknown): DepartmentSection {
     open_questions: strList(raw, "open_questions"),
     figures_cited: figures(raw, "figures_cited"),
     excerpts: strList(raw, "excerpts"),
+    section_status:
+      raw.section_status === null || raw.section_status === undefined
+        ? null
+        : oneOf(raw.section_status, "section_status", SECTION_STATUSES),
+    draft_content: optStr(raw, "draft_content"),
+    evaluation: parseEvaluation(raw.evaluation_results),
+    iteration_count: optNum(raw, "iteration_count") ?? 0,
+  };
+}
+
+function bool(row: JsonRecord, key: string): boolean {
+  const value = row[key];
+  if (typeof value !== "boolean") throw new Error(`Campo "${key}" no es booleano.`);
+  return value;
+}
+
+function record(row: JsonRecord, key: string): JsonRecord {
+  const value = row[key];
+  if (!isRecord(value)) throw new Error(`Campo "${key}" no es un objeto.`);
+  return value;
+}
+
+export function parseEvaluation(raw: unknown): EvaluationResult | null {
+  if (!isRecord(raw)) return null;
+  const readability = record(raw, "readability");
+  const relevance = record(raw, "relevance");
+  const compliance = record(raw, "compliance");
+  const details = isRecord(readability.details) ? readability.details : {};
+  const violations = Array.isArray(compliance.violations) ? compliance.violations.filter(isRecord) : [];
+  return {
+    iteration: optNum(raw, "iteration") ?? 0,
+    readability: {
+      pass: bool(readability, "pass"),
+      score: optNum(readability, "score"),
+      problems: strList(details, "problems"),
+    },
+    relevance: { pass: bool(relevance, "pass"), missing_aspects: strList(relevance, "missing_aspects") },
+    compliance: {
+      pass: bool(compliance, "pass"),
+      rule_ids: strList(compliance, "rule_ids"),
+      violations: violations.map((v) => ({
+        rule_id: str(v, "rule_id"),
+        message: str(v, "message"),
+        evidence: optStr(v, "evidence"),
+      })),
+    },
+    overall_pass: bool(raw, "overall_pass"),
+    feedback_for_generator: optStr(raw, "feedback_for_generator") ?? "",
   };
 }
 
@@ -308,6 +384,7 @@ export function parseTicketDetail(raw: unknown): RfpTicketDetail {
     sections,
     synthesis: parseSynthesis(raw.synthesis),
     ready_for_drafting: raw.ready_for_drafting === true,
+    approval_max_iterations: isRecord(raw.approval_handoff) ? optNum(raw.approval_handoff, "max_iterations") : null,
   };
 }
 
@@ -386,6 +463,30 @@ export async function uploadRfp(file: File): Promise<RfpTicketAccepted> {
   if (!accepted) throw new RfpError(404, "Servicio de RFPs no disponible.");
   return accepted;
 }
+
+/** (Re)lanza la Parte 2 (borradores + evaluación). El backend responde 202 al instante. */
+export async function regenerateDrafts(ticketId: string): Promise<RfpTicketAccepted> {
+  const accepted = await request(
+    `${TICKETS_PATH}/${encodeURIComponent(ticketId)}/drafts`,
+    parseAccepted,
+    { method: "POST" }
+  );
+  if (!accepted) throw new RfpError(404, "El ticket no existe.");
+  return accepted;
+}
+
+/** ¿Sigue trabajando el flujo sobre este ticket? (la UI hace poll mientras tanto). */
+export function isTicketBusy(ticket: { status: TicketStatus; ready_for_approval: boolean }): boolean {
+  if (ticket.status === "analizando" || ticket.status === "generando_borrador") return true;
+  return ticket.status === "en_evaluación" && !ticket.ready_for_approval;
+}
+
+export const SECTION_STATUS_LABELS: Record<SectionStatus, string> = {
+  generando: "Generando",
+  evaluando: "Evaluando",
+  evaluada_ok: "Evaluación superada",
+  needs_human_review: "Requiere revisión humana",
+};
 
 export const STATUS_LABELS: Record<TicketStatus, string> = {
   analizando: "Analizando",

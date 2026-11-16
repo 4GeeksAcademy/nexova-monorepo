@@ -2,9 +2,17 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import DraftCard from "@/components/rfp/DraftCard";
 import TicketStatusBadge from "@/components/rfp/TicketStatusBadge";
-import { DEPARTMENTS, RfpError, fetchRfpTicket, type RfpTicketDetail } from "@/lib/rfp";
+import {
+  DEPARTMENTS,
+  RfpError,
+  fetchRfpTicket,
+  isTicketBusy,
+  regenerateDrafts,
+  type RfpTicketDetail,
+} from "@/lib/rfp";
 
 /**
  * Detalle de un ticket de RFP: lo que Ventas necesita para saber, sin leer el
@@ -12,6 +20,7 @@ import { DEPARTMENTS, RfpError, fetchRfpTicket, type RfpTicketDetail } from "@/l
  */
 
 const POLL_MS = 3_000;
+const START_GRACE_MS = 30_000;
 
 type ViewState =
   | { status: "loading" }
@@ -39,10 +48,36 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
+/** Límite del ciclo generador-evaluador que aplicó la Parte 2 (viene en su handoff). */
+function maxIterations(ticket: RfpTicketDetail): number | null {
+  return ticket.approval_max_iterations;
+}
+
 export default function RfpTicketPage() {
   const params = useParams<{ ticketId: string }>();
   const ticketId = params.ticketId;
   const [state, setState] = useState<ViewState>({ status: "loading" });
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [regenerating, setRegenerating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Tras un 202 el worker tarda unos instantes en recoger la tarea: hasta ver el
+  // ticket en marcha se sigue consultando (como mucho START_GRACE_MS).
+  const awaitingStartUntil = useRef(0);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setActionError(null);
+    try {
+      await regenerateDrafts(ticketId);
+      awaitingStartUntil.current = Date.now() + START_GRACE_MS;
+    } catch (err) {
+      setActionError(err instanceof RfpError ? err.message : "No se pudo conectar con la API.");
+    } finally {
+      setRegenerating(false);
+      setRefreshKey((key) => key + 1);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +92,9 @@ export default function RfpTicketPage() {
             return;
           }
           setState({ status: "ok", ticket });
-          if (ticket.status === "analizando") timer = setTimeout(load, POLL_MS);
+          const busy = isTicketBusy(ticket);
+          if (busy) awaitingStartUntil.current = 0;
+          if (busy || Date.now() < awaitingStartUntil.current) timer = setTimeout(load, POLL_MS);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
@@ -73,7 +110,7 @@ export default function RfpTicketPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ticketId]);
+  }, [ticketId, refreshKey]);
 
   const back = (
     <Link href="/rfp" prefetch={false} className="font-mono text-xs text-teal-700 hover:underline">
@@ -102,11 +139,17 @@ export default function RfpTicketPage() {
         {back}
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-3xl font-medium tracking-tight text-stone-900">{ticket.ticket_id}</h1>
-          <TicketStatusBadge status={ticket.status} />
-          {ticket.ready_for_drafting && (
+          <TicketStatusBadge status={ticket.status} readyForApproval={ticket.ready_for_approval} />
+          {ticket.ready_for_approval ? (
             <span className="rounded-full border border-stone-300 px-2.5 py-0.5 font-mono text-xs text-stone-600">
-              Listo para la Parte 2
+              Listo para aprobación (Parte 3)
             </span>
+          ) : (
+            ticket.ready_for_drafting && (
+              <span className="rounded-full border border-stone-300 px-2.5 py-0.5 font-mono text-xs text-stone-600">
+                Análisis listo para la Parte 2
+              </span>
+            )
           )}
         </div>
         <p className="text-sm text-stone-500">
@@ -122,6 +165,49 @@ export default function RfpTicketPage() {
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Conversión a Markdown y agentes en curso. Esta página se actualiza sola.
         </p>
+      )}
+
+      {isTicketBusy(ticket) && ticket.status !== "analizando" && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          Generando y evaluando los borradores por departamento. Esta página se actualiza sola.
+        </p>
+      )}
+
+      {ticket.ready_for_drafting && (
+        <section>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-medium text-stone-900">Borradores de la propuesta</h2>
+              <p className="text-sm text-stone-500">
+                Un generador por departamento; legibilidad, pertinencia y cumplimiento evaluados en paralelo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRegenerate}
+              disabled={regenerating || isTicketBusy(ticket)}
+              className="rounded-lg border border-teal-600 px-4 py-2 text-sm font-medium text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+            >
+              {regenerating ? "Encolando…" : "Regenerar borradores"}
+            </button>
+          </div>
+          {actionError && (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{actionError}</p>
+          )}
+          {ticket.sections.some((s) => s.section_status) ? (
+            <div className="grid gap-4">
+              {ticket.sections.map((section) => (
+                <DraftCard
+                  key={section.department_id}
+                  section={section}
+                  maxIterations={maxIterations(ticket)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-stone-500">Todavía no se han generado borradores para este ticket.</p>
+          )}
+        </section>
       )}
 
       {ticket.status === "descartado" && (

@@ -30,6 +30,7 @@ from rfp_intake import (  # noqa: E402
     run_intake,
 )
 from rfp_intake.intake import MAX_PDF_BYTES  # noqa: E402
+from rfp_drafting import HandoffNotReady, run_drafting, validate_handoff  # noqa: E402
 
 
 @lru_cache(maxsize=1)
@@ -39,6 +40,9 @@ def get_store() -> SqlRfpStore:
 
 __all__ = [
     "MAX_PDF_BYTES",
+    "HandoffNotReady",
+    "run_drafting",
+    "validate_handoff",
     "InvalidUpload",
     "TicketNotFound",
     "get_store",

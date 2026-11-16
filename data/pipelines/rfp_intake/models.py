@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import DateTime
 from sqlmodel import Field, SQLModel
 
-from rfp_intake.departments import DEPARTMENT_IDS, TICKET_STATUSES
+from rfp_intake.departments import DEPARTMENT_IDS, SECTION_STATUSES, TICKET_STATUSES
 
 
 def utcnow() -> datetime:
@@ -48,6 +48,9 @@ class RfpTicket(SQLModel, table=True):
     synthesis: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
     handoff_payload: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
     ready_for_drafting: bool = Field(default=False, index=True)
+    # --- Parte 2 (migración 009) -------------------------------------------
+    ready_for_approval: bool = Field(default=False, index=True)
+    approval_handoff: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
     error_message: str | None = Field(default=None, sa_type=Text)
     attempts: int = Field(default=0)
     created_by: str | None = Field(default=None, max_length=120)
@@ -86,6 +89,10 @@ class RfpDepartmentSection(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("ticket_id", "department_id", name="uq_rfp_section_ticket_department"),
         CheckConstraint(_in_list("department_id", DEPARTMENT_IDS), name="ck_rfp_section_department"),
+        CheckConstraint(
+            f"section_status IS NULL OR {_in_list('section_status', SECTION_STATUSES)}",
+            name="ck_rfp_section_status",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -110,5 +117,10 @@ class RfpDepartmentSection(SQLModel, table=True):
     approval_status: str | None = Field(default=None, max_length=30)
     approver: str | None = Field(default=None, max_length=120)
     approved_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    # --- Parte 2: ciclo generador-evaluador (migración 009) ---------------
+    section_status: str | None = Field(default=None, max_length=30)
+    iteration_count: int = Field(default=0)
+    iteration_history: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    generated_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))

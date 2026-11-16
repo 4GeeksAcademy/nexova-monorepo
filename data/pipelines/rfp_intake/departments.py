@@ -61,6 +61,22 @@ DEPARTMENT_IDS: tuple[str, ...] = tuple(DEPARTMENTS)
 STATUS_ANALYZING = "analizando"
 STATUS_DISCARDED = "descartado"
 STATUS_ANALYSIS_COMPLETE = "analisis_completo"
+# Parte 2 (generación y evaluación).
+STATUS_GENERATING = "generando_borrador"
+STATUS_EVALUATING = "en_evaluación"
+STATUS_NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+# Estado de cada sección durante el ciclo generador-evaluador.
+SECTION_GENERATING = "generando"
+SECTION_EVALUATING = "evaluando"
+SECTION_PASSED = "evaluada_ok"
+SECTION_NEEDS_HUMAN_REVIEW = "needs_human_review"
+SECTION_STATUSES: tuple[str, ...] = (
+    SECTION_GENERATING,
+    SECTION_EVALUATING,
+    SECTION_PASSED,
+    SECTION_NEEDS_HUMAN_REVIEW,
+)
 TICKET_STATUSES: tuple[str, ...] = (
     STATUS_ANALYZING,
     STATUS_DISCARDED,

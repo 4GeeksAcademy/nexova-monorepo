@@ -24,9 +24,12 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine, select
 
 from rfp_intake.departments import (
+    SECTION_EVALUATING,
+    SECTION_GENERATING,
     STATUS_ANALYSIS_COMPLETE,
     STATUS_ANALYZING,
     STATUS_DISCARDED,
+    STATUS_GENERATING,
 )
 from rfp_intake.models import RfpDepartmentSection, RfpMetadata, RfpTicket, utcnow
 
@@ -64,6 +67,18 @@ class RfpStore(Protocol):
     def upsert_section(self, ticket_id: str, section: dict[str, Any]) -> None: ...
     def complete(self, ticket_id: str, synthesis: dict[str, Any], handoff: dict[str, Any]) -> None: ...
     def record_error(self, ticket_id: str, message: str) -> None: ...
+    # --- Parte 2: generación y evaluación ---------------------------------
+    def start_drafting(self, ticket_id: str, department_ids: list[str]) -> None: ...
+    def set_status(self, ticket_id: str, status: str) -> None: ...
+    def save_draft(self, ticket_id: str, department_id: str, draft: str, iteration: int) -> None: ...
+    def save_evaluation(
+        self, ticket_id: str, department_id: str, evaluation: dict[str, Any], section_status: str
+    ) -> None: ...
+    def finish_drafting(self, ticket_id: str, status: str, approval_handoff: dict[str, Any]) -> None: ...
+
+
+def _history_entry(draft: str | None, evaluation: dict[str, Any], iteration: int) -> dict[str, Any]:
+    return {"iteration": iteration, "draft_content": draft, "evaluation": evaluation}
 
 
 def _iso(value: Any) -> Any:
@@ -84,6 +99,7 @@ def _ticket_summary(ticket: dict[str, Any], metadata: dict[str, Any] | None) -> 
         "departments_needed": (metadata or {}).get("departments_needed") or [],
         "error_message": ticket.get("error_message"),
         "attempts": ticket.get("attempts", 0),
+        "ready_for_approval": bool(ticket.get("ready_for_approval")),
         "created_at": _iso(ticket["created_at"]),
         "updated_at": _iso(ticket["updated_at"]),
     }
@@ -100,6 +116,8 @@ def _ticket_detail(
             "synthesis": ticket.get("synthesis"),
             "handoff_payload": ticket.get("handoff_payload"),
             "ready_for_drafting": bool(ticket.get("ready_for_drafting")),
+            "ready_for_approval": bool(ticket.get("ready_for_approval")),
+            "approval_handoff": ticket.get("approval_handoff"),
             "metadata": {k: _iso(v) for k, v in metadata.items()} if metadata else None,
             "sections": [
                 {k: _iso(v) for k, v in section.items() if k not in ("id", "ticket_id")}
@@ -138,6 +156,7 @@ class InMemoryRfpStore:
             "markdown": None, "classification": None, "synthesis": None,
             "handoff_payload": None, "ready_for_drafting": False, "error_message": None,
             "attempts": 0, "created_by": created_by, "created_at": now, "updated_at": now,
+            "ready_for_approval": False, "approval_handoff": None,
         }
         return copy.deepcopy(self.tickets[ticket_id])
 
@@ -159,7 +178,7 @@ class InMemoryRfpStore:
     def start_attempt(self, ticket_id):
         ticket = self._ticket(ticket_id)
         self._touch(ticket_id, attempts=ticket["attempts"] + 1, status=STATUS_ANALYZING,
-                    ready_for_drafting=False)
+                    ready_for_drafting=False, ready_for_approval=False, approval_handoff=None)
         return copy.deepcopy(self.tickets[ticket_id])
 
     def save_markdown(self, ticket_id, markdown):
@@ -186,7 +205,8 @@ class InMemoryRfpStore:
         row = {"ticket_id": ticket_id, "department_id": section["department_id"]}
         row.update({k: copy.deepcopy(section.get(k)) for k in _SECTION_FIELDS})
         row.update({"draft_content": None, "evaluation_results": None, "approval_status": None,
-                    "approver": None, "approved_at": None})
+                    "approver": None, "approved_at": None, "section_status": None,
+                    "iteration_count": 0, "iteration_history": [], "generated_at": None})
         self.sections.setdefault(ticket_id, {})[section["department_id"]] = row
         self._touch(ticket_id)
 
@@ -196,6 +216,47 @@ class InMemoryRfpStore:
 
     def record_error(self, ticket_id, message):
         self._touch(ticket_id, error_message=message[:2000])
+
+    # --- Parte 2 --------------------------------------------------------------
+    def _section(self, ticket_id: str, department_id: str) -> dict[str, Any]:
+        try:
+            return self.sections[ticket_id][department_id]
+        except KeyError:
+            raise TicketNotFound(f"{ticket_id}/{department_id}") from None
+
+    def start_drafting(self, ticket_id, department_ids):
+        self._ticket(ticket_id)
+        for department_id in department_ids:
+            self._section(ticket_id, department_id).update(
+                draft_content=None, evaluation_results=None, section_status=SECTION_GENERATING,
+                iteration_count=0, iteration_history=[], generated_at=None,
+            )
+        self._touch(ticket_id, status=STATUS_GENERATING, ready_for_approval=False,
+                    approval_handoff=None, error_message=None)
+
+    def set_status(self, ticket_id, status):
+        self._touch(ticket_id, status=status)
+
+    def save_draft(self, ticket_id, department_id, draft, iteration):
+        self._section(ticket_id, department_id).update(
+            draft_content=draft, iteration_count=iteration, section_status=SECTION_EVALUATING,
+            generated_at=utcnow(),
+        )
+        self._touch(ticket_id)
+
+    def save_evaluation(self, ticket_id, department_id, evaluation, section_status):
+        section = self._section(ticket_id, department_id)
+        section["evaluation_results"] = copy.deepcopy(evaluation)
+        section["section_status"] = section_status
+        section["iteration_history"] = [
+            *section.get("iteration_history", []),
+            _history_entry(section.get("draft_content"), copy.deepcopy(evaluation), evaluation["iteration"]),
+        ]
+        self._touch(ticket_id)
+
+    def finish_drafting(self, ticket_id, status, approval_handoff):
+        self._touch(ticket_id, status=status, ready_for_approval=True,
+                    approval_handoff=copy.deepcopy(approval_handoff), error_message=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -277,6 +338,8 @@ class SqlRfpStore:
             ticket.attempts = (ticket.attempts or 0) + 1
             ticket.status = STATUS_ANALYZING
             ticket.ready_for_drafting = False
+            ticket.ready_for_approval = False
+            ticket.approval_handoff = None
             ticket.updated_at = utcnow()
             session.add(ticket)
             session.commit()
@@ -332,3 +395,67 @@ class SqlRfpStore:
 
     def record_error(self, ticket_id, message):
         self._update(ticket_id, error_message=message[:2000])
+
+    # --- Parte 2 --------------------------------------------------------------
+    def _section(self, session: Session, ticket_id: str, department_id: str) -> RfpDepartmentSection:
+        row = session.exec(
+            select(RfpDepartmentSection).where(
+                RfpDepartmentSection.ticket_id == ticket_id,
+                RfpDepartmentSection.department_id == department_id,
+            )
+        ).first()
+        if row is None:
+            raise TicketNotFound(f"{ticket_id}/{department_id}")
+        return row
+
+    def start_drafting(self, ticket_id, department_ids):
+        with Session(self.engine) as session:
+            ticket = self._load(session, ticket_id)
+            for department_id in department_ids:
+                row = self._section(session, ticket_id, department_id)
+                row.draft_content = None
+                row.evaluation_results = None
+                row.section_status = SECTION_GENERATING
+                row.iteration_count = 0
+                row.iteration_history = []
+                row.generated_at = None
+                row.updated_at = utcnow()
+                session.add(row)
+            ticket.status = STATUS_GENERATING
+            ticket.ready_for_approval = False
+            ticket.approval_handoff = None
+            ticket.error_message = None
+            ticket.updated_at = utcnow()
+            session.add(ticket)
+            session.commit()
+
+    def set_status(self, ticket_id, status):
+        self._update(ticket_id, status=status)
+
+    def save_draft(self, ticket_id, department_id, draft, iteration):
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            row.draft_content = draft
+            row.iteration_count = iteration
+            row.section_status = SECTION_EVALUATING
+            row.generated_at = row.updated_at = utcnow()
+            session.add(row)
+            session.commit()
+
+    def save_evaluation(self, ticket_id, department_id, evaluation, section_status):
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            row.evaluation_results = evaluation
+            row.section_status = section_status
+            # Lista nueva: SQLAlchemy no detecta mutaciones in situ de un JSONB.
+            row.iteration_history = [
+                *(row.iteration_history or []),
+                _history_entry(row.draft_content, evaluation, evaluation["iteration"]),
+            ]
+            row.updated_at = utcnow()
+            session.add(row)
+            session.commit()
+
+    def finish_drafting(self, ticket_id, status, approval_handoff):
+        self._update(ticket_id, status=status, ready_for_approval=True,
+                     approval_handoff=approval_handoff, error_message=None)
