@@ -1,0 +1,2 @@
+# PDFs de prueba: binarios, sin conversión de fin de línea (core.autocrlf los corrompería).
+*.pdf binary

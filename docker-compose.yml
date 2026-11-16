@@ -12,7 +12,10 @@ services:
       - ./data/pipelines:/data/pipelines:ro
       - ./data/process:/data/process:ro
       - ./docs/company-knowledge-base:/docs/company-knowledge-base:ro
+      # RFPs subidas (Hito 9): la API escribe el PDF y el worker lo lee.
+      - ./data/raw/rfp:/data/raw/rfp
     environment:
+      - RFP_RAW_DIR=/data/raw/rfp
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
@@ -110,10 +113,16 @@ services:
       - ./services/api:/app
       - ./data/pipelines:/data/pipelines:ro
       - ./data/eval:/data/eval
+      - ./data/raw/rfp:/data/raw/rfp
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - PIPELINES_PATH=/data/pipelines
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Grafo rfp_intake (Hito 9): PDFs subidos y modelo de generación de 4Geeks.
+      - RFP_RAW_DIR=/data/raw/rfp
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - GENERATION_MODEL=${GENERATION_MODEL}
       # Timeout blando por tarea; `TASK_SOFT_TIME_LIMIT=1` provoca la demo de la DLQ.
       - TASK_SOFT_TIME_LIMIT=${TASK_SOFT_TIME_LIMIT:-540}
     depends_on:

@@ -4,10 +4,13 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
-
+.env.local
 # Exports nocturnos de telemetría (scripts/nightly_export.py): pueden contener datos reales.
 data/raw/telemetry_*.csv
 data/raw/telemetry_*.csv.tmp
+# RFPs subidas por el backoffice (Hito 9): artefacto runtime, pueden contener datos de clientes.
+data/raw/rfp/*
+!data/raw/rfp/.gitkeep
 
 # Agente LangGraph: traces JSON y checkpoints SQLite de cada corrida (datos de ejecución).
 services/api/data/agent/

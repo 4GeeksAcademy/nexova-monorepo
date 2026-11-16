@@ -53,7 +53,7 @@ def soft_time_limit_seconds() -> int:
 REDIS_URL = _redis_url()
 SOFT_TIME_LIMIT_SECONDS = soft_time_limit_seconds()
 
-app = Celery("nexova", broker=REDIS_URL, backend=REDIS_URL, include=["tasks.reporting"])
+app = Celery("nexova", broker=REDIS_URL, backend=REDIS_URL, include=["tasks.reporting", "tasks.rfp"])
 
 app.conf.update(
     # --- ACK solo tras éxito -------------------------------------------------
