@@ -91,6 +91,7 @@ Responde SOLO con JSON:
     def user_prompt(
         self, *, header: dict[str, Any], workstream: dict[str, Any], knowledge: list[dict[str, Any]],
         previous_draft: str | None, feedback: str | None, iteration: int,
+        revision: dict[str, Any] | None = None,
     ) -> str:
         analysis = {
             "cliente": header.get("client_name"),
@@ -115,7 +116,16 @@ Responde SOLO con JSON:
             "como supuesto a confirmar con el cliente. La fecha límite es la de entrega de la "
             "propuesta: no la uses como fecha de ejecución del servicio.",
         ]
-        if iteration > 1 and previous_draft:
+        if revision:
+            # Parte 3: el responsable (o el árbitro fijo) pidió cambios en la aprobación humana.
+            parts += ["", f"Iteración {iteration}. Revisión pedida en la aprobación humana por "
+                          f"{revision.get('reviewer') or 'el responsable'}."]
+            if revision.get("previous_draft"):
+                parts += ["Borrador anterior (corrígelo):", revision["previous_draft"]]
+            else:
+                parts += ["El borrador anterior fue rechazado: redacta la sección desde cero."]
+            parts += ["", "Comentarios de la revisión (corrige TODO lo indicado):", revision.get("comments") or ""]
+        elif iteration > 1 and previous_draft:
             parts += [
                 "",
                 f"Iteración {iteration}. Tu borrador anterior NO pasó la evaluación.",
@@ -140,11 +150,13 @@ Responde SOLO con JSON:
     def generate(
         self, llm: LlmFn, *, header: dict[str, Any], workstream: dict[str, Any],
         knowledge: list[dict[str, Any]], previous_draft: str | None = None,
-        feedback: str | None = None, iteration: int = 1,
+        feedback: str | None = None, iteration: int = 1, revision: dict[str, Any] | None = None,
     ) -> str:
+        """`revision` (Parte 3): `{previous_draft, comments, reviewer}` de la aprobación humana."""
         system = self.system_prompt(header.get("currency"))
         user = self.user_prompt(header=header, workstream=workstream, knowledge=knowledge,
-                                previous_draft=previous_draft, feedback=feedback, iteration=iteration)
+                                previous_draft=previous_draft, feedback=feedback, iteration=iteration,
+                                revision=revision)
         raw = llm(f"generate:{self.department_id}", system, user)
         try:
             return self.render(GeneratedSection.model_validate(unwrap_section(raw)))

@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import DateTime
 from sqlmodel import Field, SQLModel
 
-from rfp_intake.departments import DEPARTMENT_IDS, SECTION_STATUSES, TICKET_STATUSES
+from rfp_intake.departments import APPROVAL_STATUSES, DEPARTMENT_IDS, SECTION_STATUSES, TICKET_STATUSES
 
 
 def utcnow() -> datetime:
@@ -93,6 +93,10 @@ class RfpDepartmentSection(SQLModel, table=True):
             f"section_status IS NULL OR {_in_list('section_status', SECTION_STATUSES)}",
             name="ck_rfp_section_status",
         ),
+        CheckConstraint(
+            f"approval_status IS NULL OR {_in_list('approval_status', APPROVAL_STATUSES)}",
+            name="ck_rfp_section_approval_status",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -122,5 +126,73 @@ class RfpDepartmentSection(SQLModel, table=True):
     iteration_count: int = Field(default=0)
     iteration_history: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
     generated_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    # --- Parte 3: aprobación humana (migración 010) -----------------------
+    expected_approver: str | None = Field(default=None, max_length=120)   # responsable o árbitro fijo
+    allowed_decisions: list[str] = Field(default_factory=list, sa_type=JSONB)
+    approval_round: int = Field(default=0)
+    approval_requested_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    approval_comment: str | None = Field(default=None, sa_type=Text)
+    decided_by_user: str | None = Field(default=None, max_length=255)    # usuario real que registró
+    approval_history: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
     created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+
+
+def _ticket_fk(primary_key: bool = False) -> Column:
+    return Column(
+        String(20), ForeignKey("rfp_ticket.ticket_id", ondelete="CASCADE"),
+        primary_key=primary_key, nullable=False, index=not primary_key,
+    )
+
+
+class RfpFinalDocument(SQLModel, table=True):
+    """Documento final consolidado (BRIEFING §2.3 · FinalDocument). Uno por ticket."""
+
+    __tablename__ = "rfp_final_document"
+
+    ticket_id: str = Field(sa_column=_ticket_fk(primary_key=True))
+    currency: str | None = Field(default=None, max_length=3)
+    sections: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    approvals: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    content_markdown: str = Field(sa_type=Text)
+    generated_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+
+
+class RfpTraceEvent(SQLModel, table=True):
+    """Trazabilidad: una fila por ejecución de nodo (agente, input, output, timestamp)."""
+
+    __tablename__ = "rfp_trace_event"
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticket_id: str = Field(sa_column=_ticket_fk())
+    part: str = Field(max_length=20)                 # intake | drafting | approval
+    thread_id: str | None = Field(default=None, max_length=80)
+    node: str = Field(max_length=60)
+    agent: str = Field(max_length=80)
+    status: str = Field(max_length=20)               # ok | interrumpido | error
+    input: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    output: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    started_at: datetime = Field(sa_type=DateTime(timezone=True))
+    finished_at: datetime = Field(sa_type=DateTime(timezone=True))
+    duration_ms: int = Field(default=0)
+
+
+class RfpArbitration(SQLModel, table=True):
+    """Conflicto detectado en estado estructurado y su resolución por el árbitro fijo (BRIEFING §7)."""
+
+    __tablename__ = "rfp_arbitration"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", "department_id", "trigger_id", "approval_round",
+                         name="uq_rfp_arbitration_round"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticket_id: str = Field(sa_column=_ticket_fk())
+    department_id: str = Field(max_length=30)       # sección sobre la que actúa la resolución
+    trigger_id: str = Field(max_length=40)
+    arbiter: str = Field(max_length=120)
+    action: str = Field(max_length=30)              # request_changes | reject | escalate
+    resolution: str = Field(sa_type=Text)
+    evidence: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB)
+    approval_round: int = Field(default=0)
+    created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))

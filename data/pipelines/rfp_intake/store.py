@@ -24,14 +24,25 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine, select
 
 from rfp_intake.departments import (
+    APPROVAL_PENDING,
+    APPROVAL_PROCESSING,
     SECTION_EVALUATING,
     SECTION_GENERATING,
     STATUS_ANALYSIS_COMPLETE,
     STATUS_ANALYZING,
     STATUS_DISCARDED,
+    STATUS_DONE,
     STATUS_GENERATING,
 )
-from rfp_intake.models import RfpDepartmentSection, RfpMetadata, RfpTicket, utcnow
+from rfp_intake.models import (
+    RfpArbitration,
+    RfpDepartmentSection,
+    RfpFinalDocument,
+    RfpMetadata,
+    RfpTicket,
+    RfpTraceEvent,
+    utcnow,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 for _env_file in (_REPO_ROOT / "services" / "api" / ".env", _REPO_ROOT / ".env"):
@@ -46,6 +57,22 @@ _METADATA_FIELDS = (
 _SECTION_FIELDS = (
     "owner_name", "key_aspects", "requests_to_owner", "open_questions", "figures_cited", "excerpts",
 )
+
+
+def _approval_reset() -> dict[str, Any]:
+    """Campos de aprobación (Parte 3) en blanco: sección sin pausa abierta."""
+    return {
+        "approval_status": None, "approver": None, "approved_at": None, "expected_approver": None,
+        "allowed_decisions": [], "approval_round": 0, "approval_requested_at": None,
+        "approval_comment": None, "decided_by_user": None, "approval_history": [],
+    }
+
+
+_ARBITRATION_FIELDS = ("department_id", "trigger_id", "arbiter", "action", "resolution", "evidence",
+                       "approval_round")
+_TRACE_FIELDS = ("part", "thread_id", "node", "agent", "status", "input", "output", "started_at",
+                 "finished_at", "duration_ms")
+_FINAL_FIELDS = ("currency", "sections", "approvals", "content_markdown")
 
 
 class TicketNotFound(LookupError):
@@ -75,6 +102,38 @@ class RfpStore(Protocol):
         self, ticket_id: str, department_id: str, evaluation: dict[str, Any], section_status: str
     ) -> None: ...
     def finish_drafting(self, ticket_id: str, status: str, approval_handoff: dict[str, Any]) -> None: ...
+    # --- Parte 3: aprobación humana, arbitraje, trazabilidad y cierre -----
+    def reset_approval(self, ticket_id: str, department_id: str) -> None: ...
+    def request_approval(
+        self, ticket_id: str, department_id: str, *, expected_approver: str,
+        allowed_decisions: list[str], approval_round: int,
+    ) -> None: ...
+    def set_approval_status(self, ticket_id: str, department_id: str, approval_status: str) -> None: ...
+    def record_decision(
+        self, ticket_id: str, department_id: str, *, approval_status: str, entry: dict[str, Any],
+        approval_round: int, approver: str | None = None, approved_at: datetime | None = None,
+    ) -> None: ...
+    def save_arbitration(self, ticket_id: str, record: dict[str, Any]) -> None: ...
+    def list_arbitrations(self, ticket_id: str) -> list[dict[str, Any]]: ...
+    def append_trace(self, ticket_id: str, event: dict[str, Any]) -> None: ...
+    def list_trace(self, ticket_id: str) -> list[dict[str, Any]]: ...
+    def save_final_document(self, ticket_id: str, document: dict[str, Any]) -> dict[str, Any]: ...
+    def get_final_document(self, ticket_id: str) -> dict[str, Any] | None: ...
+
+
+def _new_pause(current_status: str | None, current_round: int | None, approval_round: int) -> bool:
+    """¿Empieza una pausa nueva? Al reanudar, `human_approval` se re-ejecuta con la sección en
+    `procesando` (o `pendiente`) y la misma ronda: es la MISMA pausa y conserva su hora de inicio
+    (KPI de tiempo de aprobación por departamento)."""
+    return current_status not in (APPROVAL_PENDING, APPROVAL_PROCESSING) or current_round != approval_round
+
+
+def _append_history(history: list[dict[str, Any]] | None, entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lista nueva con la decisión añadida; idempotente por `entry['id']` (la rama puede re-ejecutarse)."""
+    history = list(history or [])
+    if any(h.get("id") == entry.get("id") for h in history):
+        return history
+    return [*history, entry]
 
 
 def _history_entry(draft: str | None, evaluation: dict[str, Any], iteration: int) -> dict[str, Any]:
@@ -85,6 +144,10 @@ def _iso(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
+
+
+def _plain_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {k: _iso(v) for k, v in row.items() if k != "id"}
 
 
 def _ticket_summary(ticket: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -106,9 +169,12 @@ def _ticket_summary(ticket: dict[str, Any], metadata: dict[str, Any] | None) -> 
 
 
 def _ticket_detail(
-    ticket: dict[str, Any], metadata: dict[str, Any] | None, sections: list[dict[str, Any]]
+    ticket: dict[str, Any], metadata: dict[str, Any] | None, sections: list[dict[str, Any]],
+    arbitrations: list[dict[str, Any]] | None = None, final_document: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail = _ticket_summary(ticket, metadata)
+    detail["arbitrations"] = [_plain_row(a) for a in arbitrations or []]
+    detail["final_document"] = _plain_row(final_document) if final_document else None
     detail.update(
         {
             "raw_pdf_path": ticket["raw_pdf_path"],
@@ -136,6 +202,9 @@ class InMemoryRfpStore:
         self.tickets: dict[str, dict[str, Any]] = {}
         self.metadata: dict[str, dict[str, Any]] = {}
         self.sections: dict[str, dict[str, dict[str, Any]]] = {}
+        self.arbitrations: dict[str, list[dict[str, Any]]] = {}
+        self.trace: dict[str, list[dict[str, Any]]] = {}
+        self.final_documents: dict[str, dict[str, Any]] = {}
 
     def _ticket(self, ticket_id: str) -> dict[str, Any]:
         try:
@@ -168,6 +237,8 @@ class InMemoryRfpStore:
                 self.tickets[ticket_id],
                 self.metadata.get(ticket_id),
                 list(self.sections.get(ticket_id, {}).values()),
+                self.arbitrations.get(ticket_id, []),
+                self.final_documents.get(ticket_id),
             )
         )
 
@@ -204,9 +275,9 @@ class InMemoryRfpStore:
         self._ticket(ticket_id)
         row = {"ticket_id": ticket_id, "department_id": section["department_id"]}
         row.update({k: copy.deepcopy(section.get(k)) for k in _SECTION_FIELDS})
-        row.update({"draft_content": None, "evaluation_results": None, "approval_status": None,
-                    "approver": None, "approved_at": None, "section_status": None,
+        row.update({"draft_content": None, "evaluation_results": None, "section_status": None,
                     "iteration_count": 0, "iteration_history": [], "generated_at": None})
+        row.update(_approval_reset())
         self.sections.setdefault(ticket_id, {})[section["department_id"]] = row
         self._touch(ticket_id)
 
@@ -229,8 +300,11 @@ class InMemoryRfpStore:
         for department_id in department_ids:
             self._section(ticket_id, department_id).update(
                 draft_content=None, evaluation_results=None, section_status=SECTION_GENERATING,
-                iteration_count=0, iteration_history=[], generated_at=None,
+                iteration_count=0, iteration_history=[], generated_at=None, **_approval_reset(),
             )
+        # Borradores nuevos: las aprobaciones, arbitrajes y el documento final anteriores caducan.
+        self.arbitrations.pop(ticket_id, None)
+        self.final_documents.pop(ticket_id, None)
         self._touch(ticket_id, status=STATUS_GENERATING, ready_for_approval=False,
                     approval_handoff=None, error_message=None)
 
@@ -257,6 +331,71 @@ class InMemoryRfpStore:
     def finish_drafting(self, ticket_id, status, approval_handoff):
         self._touch(ticket_id, status=status, ready_for_approval=True,
                     approval_handoff=copy.deepcopy(approval_handoff), error_message=None)
+
+    # --- Parte 3 --------------------------------------------------------------
+    def reset_approval(self, ticket_id, department_id):
+        self._section(ticket_id, department_id).update(_approval_reset())
+        self.arbitrations[ticket_id] = [
+            a for a in self.arbitrations.get(ticket_id, []) if a["department_id"] != department_id
+        ]
+        self.final_documents.pop(ticket_id, None)
+        self._touch(ticket_id)
+
+    def request_approval(self, ticket_id, department_id, *, expected_approver, allowed_decisions,
+                         approval_round):
+        section = self._section(ticket_id, department_id)
+        if _new_pause(section.get("approval_status"), section.get("approval_round"), approval_round):
+            section["approval_requested_at"] = utcnow()
+        section.update(approval_status=APPROVAL_PENDING, expected_approver=expected_approver,
+                       allowed_decisions=list(allowed_decisions), approval_round=approval_round)
+        # La rama llegó a su pausa: los avisos de intentos fallidos anteriores ya no aplican.
+        self._touch(ticket_id, error_message=None)
+
+    def set_approval_status(self, ticket_id, department_id, approval_status):
+        self._section(ticket_id, department_id)["approval_status"] = approval_status
+        self._touch(ticket_id)
+
+    def record_decision(self, ticket_id, department_id, *, approval_status, entry, approval_round,
+                        approver=None, approved_at=None):
+        section = self._section(ticket_id, department_id)
+        section.update(
+            approval_status=approval_status, approval_round=approval_round, approver=approver,
+            approved_at=approved_at, approval_comment=entry.get("comment"),
+            decided_by_user=entry.get("decided_by_user"), allowed_decisions=[],
+            approval_history=_append_history(section.get("approval_history"), copy.deepcopy(entry)),
+        )
+        self._touch(ticket_id, error_message=None)
+
+    def save_arbitration(self, ticket_id, record):
+        self._ticket(ticket_id)
+        rows = self.arbitrations.setdefault(ticket_id, [])
+        key = (record["department_id"], record["trigger_id"], record["approval_round"])
+        rows[:] = [r for r in rows if (r["department_id"], r["trigger_id"], r["approval_round"]) != key]
+        rows.append({"ticket_id": ticket_id, **{k: copy.deepcopy(record.get(k)) for k in _ARBITRATION_FIELDS},
+                     "created_at": utcnow()})
+
+    def list_arbitrations(self, ticket_id):
+        return [_plain_row(a) for a in copy.deepcopy(self.arbitrations.get(ticket_id, []))]
+
+    def append_trace(self, ticket_id, event):
+        rows = self.trace.setdefault(ticket_id, [])
+        rows.append({"id": len(rows) + 1, "ticket_id": ticket_id,
+                     **{k: copy.deepcopy(event.get(k)) for k in _TRACE_FIELDS}})
+
+    def list_trace(self, ticket_id):
+        return [{"seq": r["id"], **_plain_row(r)} for r in copy.deepcopy(self.trace.get(ticket_id, []))]
+
+    def save_final_document(self, ticket_id, document):
+        self._ticket(ticket_id)
+        row = {"ticket_id": ticket_id, **{k: copy.deepcopy(document.get(k)) for k in _FINAL_FIELDS},
+               "generated_at": utcnow()}
+        self.final_documents[ticket_id] = row
+        self._touch(ticket_id, status=STATUS_DONE, error_message=None)
+        return _plain_row(copy.deepcopy(row))
+
+    def get_final_document(self, ticket_id):
+        row = self.final_documents.get(ticket_id)
+        return _plain_row(copy.deepcopy(row)) if row else None
 
 
 # --------------------------------------------------------------------------- #
@@ -315,8 +454,13 @@ class SqlRfpStore:
             sections = session.exec(
                 select(RfpDepartmentSection).where(RfpDepartmentSection.ticket_id == ticket_id)
             ).all()
+            arbitrations = session.exec(
+                select(RfpArbitration).where(RfpArbitration.ticket_id == ticket_id).order_by(RfpArbitration.id)
+            ).all()
+            final_document = session.get(RfpFinalDocument, ticket_id)
             return _ticket_detail(
-                _row(ticket), _row(metadata) if metadata else None, [_row(s) for s in sections]
+                _row(ticket), _row(metadata) if metadata else None, [_row(s) for s in sections],
+                [_row(a) for a in arbitrations], _row(final_document) if final_document else None,
             )
 
     def list_tickets(self, limit=50):
@@ -419,8 +563,13 @@ class SqlRfpStore:
                 row.iteration_count = 0
                 row.iteration_history = []
                 row.generated_at = None
+                for key, value in _approval_reset().items():
+                    setattr(row, key, value)
                 row.updated_at = utcnow()
                 session.add(row)
+            # Borradores nuevos: las aprobaciones, arbitrajes y el documento final anteriores caducan.
+            session.exec(delete(RfpArbitration).where(RfpArbitration.ticket_id == ticket_id))
+            session.exec(delete(RfpFinalDocument).where(RfpFinalDocument.ticket_id == ticket_id))
             ticket.status = STATUS_GENERATING
             ticket.ready_for_approval = False
             ticket.approval_handoff = None
@@ -459,3 +608,127 @@ class SqlRfpStore:
     def finish_drafting(self, ticket_id, status, approval_handoff):
         self._update(ticket_id, status=status, ready_for_approval=True,
                      approval_handoff=approval_handoff, error_message=None)
+
+    # --- Parte 3 --------------------------------------------------------------
+    def _update_section(self, ticket_id: str, department_id: str, **changes: Any) -> None:
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            for key, value in changes.items():
+                setattr(row, key, value)
+            row.updated_at = utcnow()
+            session.add(row)
+            session.commit()
+
+    def reset_approval(self, ticket_id, department_id):
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            for key, value in _approval_reset().items():
+                setattr(row, key, value)
+            row.updated_at = utcnow()
+            session.add(row)
+            session.exec(delete(RfpArbitration).where(RfpArbitration.ticket_id == ticket_id,
+                                                      RfpArbitration.department_id == department_id))
+            session.exec(delete(RfpFinalDocument).where(RfpFinalDocument.ticket_id == ticket_id))
+            session.commit()
+
+    def request_approval(self, ticket_id, department_id, *, expected_approver, allowed_decisions,
+                         approval_round):
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            if _new_pause(row.approval_status, row.approval_round, approval_round):
+                row.approval_requested_at = utcnow()
+            row.approval_status = APPROVAL_PENDING
+            row.expected_approver = expected_approver
+            row.allowed_decisions = list(allowed_decisions)
+            row.approval_round = approval_round
+            row.updated_at = utcnow()
+            session.add(row)
+            self._clear_error(session, ticket_id)
+            session.commit()
+
+    def _clear_error(self, session: Session, ticket_id: str) -> None:
+        """La rama avanzó bien: los avisos de intentos fallidos anteriores ya no aplican."""
+        ticket = self._load(session, ticket_id)
+        ticket.error_message = None
+        ticket.updated_at = utcnow()
+        session.add(ticket)
+
+    def set_approval_status(self, ticket_id, department_id, approval_status):
+        self._update_section(ticket_id, department_id, approval_status=approval_status)
+
+    def record_decision(self, ticket_id, department_id, *, approval_status, entry, approval_round,
+                        approver=None, approved_at=None):
+        with Session(self.engine) as session:
+            row = self._section(session, ticket_id, department_id)
+            row.approval_status = approval_status
+            row.approval_round = approval_round
+            row.approver = approver
+            row.approved_at = approved_at
+            row.approval_comment = entry.get("comment")
+            row.decided_by_user = entry.get("decided_by_user")
+            row.allowed_decisions = []
+            row.approval_history = _append_history(row.approval_history, entry)
+            row.updated_at = utcnow()
+            session.add(row)
+            self._clear_error(session, ticket_id)
+            session.commit()
+
+    def save_arbitration(self, ticket_id, record):
+        with Session(self.engine) as session:
+            self._load(session, ticket_id)
+            row = session.exec(
+                select(RfpArbitration).where(
+                    RfpArbitration.ticket_id == ticket_id,
+                    RfpArbitration.department_id == record["department_id"],
+                    RfpArbitration.trigger_id == record["trigger_id"],
+                    RfpArbitration.approval_round == record["approval_round"],
+                )
+            ).first() or RfpArbitration(ticket_id=ticket_id, department_id=record["department_id"],
+                                        trigger_id=record["trigger_id"], approval_round=record["approval_round"],
+                                        arbiter=record["arbiter"], action=record["action"],
+                                        resolution=record["resolution"])
+            for key in _ARBITRATION_FIELDS:
+                setattr(row, key, record.get(key))
+            session.add(row)
+            session.commit()
+
+    def list_arbitrations(self, ticket_id):
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(RfpArbitration).where(RfpArbitration.ticket_id == ticket_id).order_by(RfpArbitration.id)
+            ).all()
+            return [_plain_row(_row(r)) for r in rows]
+
+    def append_trace(self, ticket_id, event):
+        with Session(self.engine) as session:
+            session.add(RfpTraceEvent(ticket_id=ticket_id, **{k: event.get(k) for k in _TRACE_FIELDS}))
+            session.commit()
+
+    def list_trace(self, ticket_id):
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(RfpTraceEvent).where(RfpTraceEvent.ticket_id == ticket_id).order_by(RfpTraceEvent.id)
+            ).all()
+            return [{"seq": r.id, **_plain_row(_row(r))} for r in rows]
+
+    def save_final_document(self, ticket_id, document):
+        with Session(self.engine) as session:
+            ticket = self._load(session, ticket_id)
+            row = session.get(RfpFinalDocument, ticket_id) or RfpFinalDocument(
+                ticket_id=ticket_id, content_markdown=document["content_markdown"])
+            for key in _FINAL_FIELDS:
+                setattr(row, key, document.get(key))
+            row.generated_at = utcnow()
+            ticket.status = STATUS_DONE
+            ticket.error_message = None
+            ticket.updated_at = utcnow()
+            session.add(row)
+            session.add(ticket)
+            session.commit()
+            session.refresh(row)
+            return _plain_row(_row(row))
+
+    def get_final_document(self, ticket_id):
+        with Session(self.engine) as session:
+            row = session.get(RfpFinalDocument, ticket_id)
+            return _plain_row(_row(row)) if row else None

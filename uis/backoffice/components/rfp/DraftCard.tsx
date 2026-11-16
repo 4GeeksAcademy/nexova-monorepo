@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   DEPARTMENTS,
   SECTION_STATUS_LABELS,
@@ -41,7 +42,14 @@ function Problems({ evaluation }: { evaluation: EvaluationResult }) {
   );
 }
 
-export default function DraftCard({ section, maxIterations }: { section: DepartmentSection; maxIterations: number | null }) {
+interface DraftCardProps {
+  section: DepartmentSection;
+  maxIterations: number | null;
+  /** Parte 3: panel de aprobación humana de esta sección. */
+  children?: ReactNode;
+}
+
+export default function DraftCard({ section, maxIterations, children }: DraftCardProps) {
   const department = DEPARTMENTS[section.department_id];
   const evaluation = section.evaluation;
   const needsReview = section.section_status === "needs_human_review";
@@ -98,6 +106,8 @@ export default function DraftCard({ section, maxIterations }: { section: Departm
       ) : (
         <p className="mt-5 text-sm text-stone-400">{working ? "Redactando el primer borrador…" : "Sin borrador."}</p>
       )}
+
+      {children}
     </article>
   );
 }

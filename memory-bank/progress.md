@@ -25,9 +25,11 @@
 
 - Generación y evaluación de respuestas a RFP, Hito 9 · Parte 2 (rama `feature/rfp-response-generation`, sobre `feature/rfp-intake`): al terminar la Parte 1, el worker encola `rfp.generate_responses`; el grafo `data/pipelines/rfp_drafting/` genera una sección por departamento (un generador por departamento, con la base de conocimiento vía RAG), la evalúa en paralelo (legibilidad, pertinencia y cumplimiento del BRIEFING §5) y la devuelve a su generador con feedback hasta pasar o agotar `RFP_MAX_ITERATIONS` (3) → `needs_human_review`. Borradores y `EvaluationResult` en Postgres (migración 009); handoff a la Parte 3 en `rfp_ticket.approval_handoff` (`rfp_drafting.v1`).
 
+- Aprobación humana y cierre de RFPs, Hito 9 · Parte 3 (rama `feature/rfp-approval-completion`, sobre `feature/rfp-response-generation`): al terminar la Parte 2 el worker abre una rama de aprobación por departamento activo (`rfp.run_approval_branch`), cada una con su `interrupt` y su hilo `rfp-{ticket_id}:{department_id}` en el checkpointer Postgres; el ticket pasa a `esperando_aprobación`. Desde `/rfp/[ticketId]` cada sección se aprueba, se rechaza o se le piden cambios en nombre de su responsable; solo se reanuda esa rama. Pedir cambios vuelve al generador de la Parte 2 (límite `RFP_MAX_APPROVAL_ROUNDS` = 2). Un nodo de arbitraje aplica los triggers del BRIEFING §7 con árbitro fijo y sin LLM. Cuando todas las secciones están aprobadas se genera el documento final y el ticket queda `terminado`. Trazabilidad por nodo de las Partes 1–3 en `rfp_trace_event`. Migración 010; ruta E2E reproducible en `scripts/rfp_e2e.py` y `tests/pipelines/test_rfp_e2e.py`.
+
 ## Pasos previstos
+- RFPs Parte 3: la migración 010 ya está aplicada en el Supabase compartido (cualquier otro entorno la necesita antes de desplegar). Verificado en Docker (NubeSoft `terminado`). Pendiente: cuando el proveedor del LLM recupere cuota, ejecutar `scripts/rfp_approve.py resume RFP-EA6FA138 --department seleccion` (ronda de cambios pedida desde la UI) y aprobar ambas secciones de Vantex hasta `terminado`. Abrir el PR `feature/rfp-approval-completion` con el ejemplo de `scripts/rfp_e2e.py` y `docs/rfp/rfp-approval-evidence.md`.
 - RFPs Parte 2: abrir el PR `feature/rfp-response-generation` (apilado sobre `feature/rfp-intake`) con los ejemplos de `docs/rfp/rfp-drafting-evidence.md`. La migración 009 ya está aplicada en el Supabase compartido; cualquier otro entorno la necesita antes de desplegar (sin esas columnas los endpoints `/rfp` fallan).
-- RFPs Parte 3: leer `rfp_ticket.approval_handoff` (`WHERE ready_for_approval`) y aprobar cada sección con su responsable; los triggers de conflicto del BRIEFING §7 (`ttc-vs-training-window`, `support-sla-missing`, `currency-mismatch`) pueden apoyarse en los `rule_id` de `rfp_drafting/compliance_rules.py`.
 - RFPs (Hito 9 · Parte 1): abrir el PR `feature/rfp-intake` con el ejemplo y las capturas de `docs/rfp/rfp-intake-evidence.md` (después de los PR de MCP, memoria y guardrails, de los que parte esta rama).
 - RFPs: el acceso a `/rfp` solo bloquea a usuarios con `client_company`; restringirlo a admin/manager cuando existan admins. El worker descarga `punkt_tab` de NLTK la primera vez (necesita red); si se quiere evitar, descargarlo en la imagen.
 - RFPs Parte 2: leer `rfp_ticket.handoff_payload` (`contract_version = rfp_intake.v1`) y escribir borradores en las filas de `rfp_department_section` existentes.
@@ -71,6 +73,55 @@
   - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
 
 ## Historial de Avances
+- **[2026-11-16] Aprobación humana y cierre del documento de RFP (Hito 9 · Parte 3, rama `feature/rfp-approval-completion`, creada desde `feature/rfp-response-generation`):**
+  - **Decisiones con el usuario:**
+    - Un hilo del checkpointer por departamento (`rfp-{ticket_id}:{department_id}`) y checkpointer Postgres.
+    - Arbitraje por reglas con árbitro fijo.
+    - Quien registra la decisión actúa "como" el responsable nombrado (o el árbitro), y se guarda también el usuario real.
+    - Pedir cambios o rechazar con rondas disponibles regenera la sección en la Parte 2.
+  - **Pipeline** `data/pipelines/rfp_approval/`:
+    - `schemas`: `ApprovalDecision` y `validate_decision`.
+    - `arbitration`: hechos estructurados, 3 triggers y `resolve`.
+    - `revision`: vuelta al generador de la Parte 2 y reevaluación.
+    - `final_document`: synthesizer determinista.
+    - `checkpointer`: postgres, sqlite o memory.
+    - `graph`: `load_section → arbitrate → human_approval (interrupt) → apply_decision → revise | close | synthesize_final_document`.
+    - `approval`: `start_approval` y `resume_approval`.
+    - Trazabilidad compartida en `rfp_intake/trace.py`, conectada también a los grafos de las Partes 1 y 2.
+    - Ajustes en la Parte 2: `revision` en el prompt del generador, y `detect_currencies` y `time_to_close_business_days` en `compliance_rules.py`.
+  - **Persistencia:**
+    - Migración `010_rfp_approval.sql`: columnas de aprobación en `rfp_department_section` y tablas `rfp_final_document`, `rfp_trace_event` y `rfp_arbitration`.
+    - Métodos nuevos del store; `start_drafting` invalida las aprobaciones anteriores.
+  - **Dependencias:** `langgraph-checkpoint-postgres` y `psycopg[binary]`, en `pyproject` y `requirements`.
+  - **Backend:**
+    - Tareas `rfp.run_approval_branch` y `rfp.resume_approval_branch`, encoladas por la Parte 2 al terminar. Una decisión inválida o fallida devuelve la sección a `pendiente`.
+    - Endpoints `POST /rfp/tickets/{id}/approvals[?department_id=]`, `POST /rfp/tickets/{id}/approvals/{department_id}` (202, 409, 422), `GET .../trace` y `GET .../final-document`.
+    - `docker-compose.yml` sin cambios: valen los valores por defecto.
+  - **Backoffice:**
+    - `ApprovalPanel` por sección: "Aprobar como …", comentario, decisiones permitidas e historial.
+    - Bloque de arbitraje, `FinalDocumentView` con descarga `.md` y `TraceTimeline`.
+    - Botones "Abrir aprobaciones" y "Reabrir aprobación"; estilos para `esperando_aprobación` y `terminado`.
+    - Poll mientras una rama procesa o se revisa.
+  - **Scripts:** `scripts/rfp_e2e.py` (Partes 1→3 con fixtures y aprobaciones simuladas) y `scripts/rfp_approve.py` (status, start y resume contra Supabase).
+  - **Verificado:**
+    - Tests nuevos: `test_rfp_approval_graph.py` (16), `test_rfp_arbitration.py` (7), `test_rfp_e2e.py` (2) y casos nuevos en `test_rfp_api.py` (6).
+    - Suites `pipelines` (398), `incidents`, `tasks` y `job_runner` (57) en verde.
+    - Backoffice: `tsc` sin errores, lint solo con los 3 errores previos y `next build` OK.
+  - **Migración 010 aplicada [2026-11-16]** en el Supabase compartido por el agente, a petición del usuario y en una transacción:
+    - Las 3 tablas nuevas ya existían porque las había creado `create_db_and_tables()` al recargar la API; la migración añadió las 7 columnas de aprobación y `ck_rfp_section_approval_status`.
+    - Las 3 secciones existentes tenían `approval_status` NULL.
+    - El store SQL lee los 3 tickets y las tablas nuevas, y el detalle valida contra `RfpTicketDetail`.
+  - **Verificado en Docker [2026-11-16]** (Docker Desktop en Windows, Supabase por el pooler en modo transacción, UI con Claude in Chrome; evidencia en `docs/rfp/rfp-approval-evidence.md`):
+    - NubeSoft (`RFP-80303FCD`) recorrió el ciclo completo hasta `terminado`, con documento final en USD aprobado por Roberto Díaz.
+    - Vantex (`RFP-EA6FA138`): capacitación aprobada con selección en pausa.
+    - Checkpoints en Postgres separados por hilo `rfp-{ticket}:{dept}`.
+  - **Arreglos tras la prueba:**
+    - `prepare_threshold=None`: `0` preparaba todas las sentencias y rompía con el pooler.
+    - `setup()` del checkpointer tolerante a carreras.
+    - El ticket limpia `error_message` al llegar a la pausa o decidir.
+    - `approval_requested_at` se conserva al reanudar (KPI de tiempo de aprobación).
+    - Dos tests de regresión nuevos.
+  - **Bloqueado:** la ronda de cambios de Vantex/selección no se completó porque el proveedor del LLM devolvió `403 Key limit exceeded (daily limit)`. La rama está en su checkpoint con `next = ['revise']`.
 - **[2026-11-16] Generación y evaluación de respuestas a RFP (Hito 9 · Parte 2, rama `feature/rfp-response-generation`):**
   - **Decisiones con el usuario:** la Parte 2 arranca sola al terminar la Parte 1 (más botón "Regenerar borradores" y script); los generadores usan la base de conocimiento vía RAG/Qdrant; rama desde `feature/rfp-intake`.
   - **Pipeline** `data/pipelines/rfp_drafting/`: `generators/{seleccion,capacitacion,soporte}.py` (un agente por departamento sobre `generators/base.py`), `knowledge.py` (`retrieve()` de `rag.py` con timeout; sin Qdrant genera sin contexto), `evaluators.py` (legibilidad determinista, pertinencia con juez LLM por aspecto y con cita, feedback construido por código), `compliance_rules.py` (5 reglas del BRIEFING §5 con `rule_id`), `graph.py` (subgrafo por departamento con `Send`; los 3 evaluadores en paralelo con claves de estado propias y `judge` como único punto de unión) y `drafting.py` (`run_drafting`; clientes actuales desde la tabla `incident`).

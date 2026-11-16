@@ -191,6 +191,115 @@ def test_part1_success_enqueues_part2_automatically(ctx, monkeypatch):
     assert enqueued == [{"ticket_id": "RFP-AUTO"}]
 
 
+# --------------------------------------------------------------------------- #
+# Parte 3: aprobación humana, trace y documento final
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def approval_ctx(ctx, monkeypatch):
+    """Ticket tras la Parte 2 con la rama de `soporte` en pausa (checkpointer en memoria)."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from approval_fakes import Approvals, ticket_after_part2
+
+    llm = ticket_after_part2(ctx.store, ["soporte"], hq="Miami", currency="USD")
+    flow = Approvals(ctx.store, llm, checkpointer=InMemorySaver())
+    flow.start("soporte")
+    resumed: list[dict] = []
+    monkeypatch.setattr(ctx.router.resume_approval_branch, "apply_async",
+                        lambda kwargs: resumed.append(kwargs) or SimpleNamespace(id="resume-1"))
+    return SimpleNamespace(flow=flow, resumed=resumed, ticket_id="RFP-P3TEST")
+
+
+def test_decision_is_validated_and_resumes_only_that_branch(ctx, approval_ctx):
+    response = ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/soporte",
+                               json={"decision": "approve", "acting_as": "Roberto Díaz"})
+
+    assert response.status_code == 202
+    assert response.json()["approval_status"] == "procesando"
+    [queued] = approval_ctx.resumed
+    assert queued["department_id"] == "soporte"
+    assert queued["decision"]["acting_as"] == "Roberto Díaz"
+    assert queued["decision"]["decided_by_user"] == "ventas@nexova-solutions.com"  # usuario real, no el cliente
+    # Segunda decisión mientras la primera se procesa: 409, no se encola dos veces.
+    again = ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/soporte",
+                            json={"decision": "approve", "acting_as": "Roberto Díaz"})
+    assert again.status_code == 409 and len(approval_ctx.resumed) == 1
+
+    # El worker reanuda con la decisión encolada → documento final accesible.
+    approval_ctx.flow.decide("soporte", **{k: v for k, v in queued["decision"].items() if k != "decision"},
+                             decision=queued["decision"]["decision"])
+    detail = ctx.client.get(f"/rfp/tickets/{approval_ctx.ticket_id}").json()
+    assert detail["status"] == "terminado"
+    assert detail["sections"][0]["approval_status"] == "aprobada"
+    assert detail["final_document"]["currency"] == "USD"
+    final = ctx.client.get(f"/rfp/tickets/{approval_ctx.ticket_id}/final-document")
+    assert final.status_code == 200 and "Roberto Díaz" in final.json()["content_markdown"]
+
+
+def test_decision_on_behalf_of_someone_else_is_422(ctx, approval_ctx):
+    response = ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/soporte",
+                               json={"decision": "approve", "acting_as": "Elena Vargas"})
+    assert response.status_code == 422
+    assert "Roberto Díaz" in response.json()["detail"]
+    reject = ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/soporte",
+                             json={"decision": "reject", "acting_as": "Roberto Díaz", "comment": ""})
+    assert reject.status_code == 422
+    assert approval_ctx.resumed == []
+
+
+def test_decision_for_inactive_department_or_unknown_ticket(ctx, approval_ctx):
+    inactive = ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/seleccion",
+                               json={"decision": "approve", "acting_as": "Javier Almeida"})
+    assert inactive.status_code == 409
+    assert ctx.client.post("/rfp/tickets/RFP-NOPE/approvals/soporte",
+                           json={"decision": "approve", "acting_as": "Roberto Díaz"}).status_code == 404
+    assert ctx.client.get(f"/rfp/tickets/{approval_ctx.ticket_id}/final-document").status_code == 404
+
+
+def test_trace_endpoint_lists_agents_in_order(ctx, approval_ctx):
+    trace = ctx.client.get(f"/rfp/tickets/{approval_ctx.ticket_id}/trace")
+    assert trace.status_code == 200
+    events = trace.json()
+    assert [e["seq"] for e in events] == sorted(e["seq"] for e in events)
+    assert events[-1]["agent"] == "aprobacion_humana:soporte" and events[-1]["status"] == "interrumpido"
+    assert events[-1]["thread_id"] == "rfp-RFP-P3TEST:soporte"
+
+
+def test_open_approvals_enqueues_one_task_per_active_department(ctx, monkeypatch):
+    from approval_fakes import ticket_after_part2
+    from tasks import rfp as rfp_tasks
+
+    ticket_after_part2(ctx.store, ["seleccion", "capacitacion"])
+    started: list[dict] = []
+    monkeypatch.setattr(rfp_tasks.run_approval_branch, "apply_async",
+                        lambda kwargs: started.append(kwargs) or SimpleNamespace(id=f"t-{len(started)}"))
+
+    response = ctx.client.post("/rfp/tickets/RFP-P3TEST/approvals")
+
+    assert response.status_code == 202
+    assert response.json()["department_ids"] == ["seleccion", "capacitacion"]
+    assert started == [{"ticket_id": "RFP-P3TEST", "department_id": "seleccion"},
+                       {"ticket_id": "RFP-P3TEST", "department_id": "capacitacion"}]
+    one = ctx.client.post("/rfp/tickets/RFP-P3TEST/approvals?department_id=capacitacion")
+    assert one.status_code == 202 and one.json()["department_ids"] == ["capacitacion"]
+
+
+def test_part2_success_opens_the_approvals_automatically(ctx, monkeypatch):
+    from rfp import pipeline_bridge
+    from tasks import rfp as rfp_tasks
+
+    monkeypatch.setattr(pipeline_bridge, "run_drafting", lambda ticket_id, store: {
+        "ticket_id": ticket_id, "status": "en_evaluación", "sections": {"soporte": "evaluada_ok"}})
+    started: list[dict] = []
+    monkeypatch.setattr(rfp_tasks.run_approval_branch, "apply_async",
+                        lambda kwargs: started.append(kwargs) or SimpleNamespace(id="approval-1"))
+
+    result = rfp_tasks.generate_rfp_responses.apply(kwargs={"ticket_id": "RFP-AUTO"}).get()
+
+    assert result["approval_task_ids"] == {"soporte": "approval-1"}
+    assert started == [{"ticket_id": "RFP-AUTO", "department_id": "soporte"}]
+
+
 def test_discarded_rfp_does_not_enqueue_part2(ctx, monkeypatch):
     from rfp import pipeline_bridge
     from tasks import rfp as rfp_tasks

@@ -13,6 +13,20 @@ persistencia y el guardado del PDF viven en `data/pipelines/rfp_intake/`.
 - `GET /rfp/tickets/{ticket_id}`: detalle con metadatos, secciones por
   departamento, resumen para Ventas y payload de handoff.
 
+Parte 3 (aprobación humana y cierre):
+
+- `POST /rfp/tickets/{ticket_id}/approvals[?department_id=]`: (re)abre la
+  pausa de aprobación de todas las secciones (o de una). Arranca sola al
+  terminar la Parte 2.
+- `POST /rfp/tickets/{ticket_id}/approvals/{department_id}`: decisión humana
+  (`approve` | `request_changes` | `reject`) en nombre del responsable
+  (`acting_as`); se valida antes de reanudar y se encola la reanudación SOLO de
+  esa rama (202). Se guarda también el usuario real que la registró.
+- `GET /rfp/tickets/{ticket_id}/trace`: agente, input, output y timestamps de
+  cada nodo ejecutado (Partes 1–3), en orden.
+- `GET /rfp/tickets/{ticket_id}/final-document`: documento final (404 hasta
+  que todas las secciones activas estén aprobadas).
+
 Acceso: personal de Nexova. Un usuario externo (con `client_company`) recibe 403.
 """
 
@@ -25,9 +39,20 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import User
 from rfp import pipeline_bridge
-from rfp.schemas import RfpDraftingAccepted, RfpTicketAccepted, RfpTicketDetail, RfpTicketSummary
+from rfp.schemas import (
+    ApprovalDecisionIn,
+    DepartmentId,
+    FinalDocumentRead,
+    RfpApprovalAccepted,
+    RfpDecisionAccepted,
+    RfpDraftingAccepted,
+    RfpTicketAccepted,
+    RfpTicketDetail,
+    RfpTicketSummary,
+    TraceEventRead,
+)
 from security import get_current_user
-from tasks.rfp import generate_rfp_responses, run_rfp_intake
+from tasks.rfp import enqueue_approvals, generate_rfp_responses, resume_approval_branch, run_rfp_intake
 
 logger = logging.getLogger("rfp")
 
@@ -141,4 +166,134 @@ def get_rfp_ticket(ticket_id: str, _: User = Depends(require_internal_user)) -> 
         raise _storage_unavailable() from exc
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket de RFP no encontrado.")
-    return RfpTicketDetail.model_validate(ticket)
+    return RfpTicketDetail.model_validate({**ticket, "max_approval_rounds": pipeline_bridge.max_approval_rounds()})
+
+
+# --------------------------------------------------------------------------- #
+# Parte 3: aprobación humana, trazabilidad y documento final
+# --------------------------------------------------------------------------- #
+def _load_ticket(ticket_id: str) -> dict:
+    try:
+        ticket = pipeline_bridge.get_store().get_ticket(ticket_id)
+    except SQLAlchemyError as exc:
+        logger.exception("No se pudo leer el ticket %s", ticket_id)
+        raise _storage_unavailable() from exc
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket de RFP no encontrado.")
+    return ticket
+
+
+@router.post(
+    "/tickets/{ticket_id}/approvals",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=RfpApprovalAccepted,
+    summary="(Re)abre la aprobación humana de las secciones (todas o una)",
+)
+def open_approvals(
+    ticket_id: str,
+    department_id: DepartmentId | None = Query(default=None, description="Solo este departamento"),
+    _: User = Depends(require_internal_user),
+) -> RfpApprovalAccepted:
+    ticket = _load_ticket(ticket_id)
+    try:
+        departments = pipeline_bridge.validate_approval_handoff(ticket, department_id)
+    except pipeline_bridge.ApprovalNotReady as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if ticket["status"] == "terminado":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="El ticket ya está terminado: su documento final está generado.")
+    targets = [department_id] if department_id else departments
+    busy = [s["department_id"] for s in ticket["sections"]
+            if s["department_id"] in targets and s.get("approval_status") == "procesando"]
+    if busy:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Hay una decisión en curso para: {', '.join(busy)}.")
+    task_ids = enqueue_approvals(ticket_id, targets)
+    if not any(task_ids.values()):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="La cola de tareas no está disponible.")
+    return RfpApprovalAccepted(ticket_id=ticket_id, department_ids=targets, task_ids=task_ids)
+
+
+@router.post(
+    "/tickets/{ticket_id}/approvals/{department_id}",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=RfpDecisionAccepted,
+    summary="Registra la decisión humana de un departamento y reanuda solo su rama",
+)
+def submit_decision(
+    ticket_id: str,
+    department_id: DepartmentId,
+    body: ApprovalDecisionIn,
+    current_user: User = Depends(require_internal_user),
+) -> RfpDecisionAccepted:
+    ticket = _load_ticket(ticket_id)
+    try:
+        pipeline_bridge.validate_approval_handoff(ticket, department_id)
+    except pipeline_bridge.ApprovalNotReady as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    section = next(s for s in ticket["sections"] if s["department_id"] == department_id)
+    if section.get("approval_status") != "pendiente":
+        detail = ("Ya hay una decisión en curso para esta sección." if section.get("approval_status") == "procesando"
+                  else "Esta sección no está esperando aprobación.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+    # Guardrail antes de reanudar el grafo: formato, aprobador esperado y decisión permitida en esta ronda.
+    try:
+        decision = pipeline_bridge.validate_decision(
+            {**body.model_dump(), "decided_by_user": current_user.email},
+            expected_approver=section.get("expected_approver") or "",
+            allowed_decisions=section.get("allowed_decisions") or [],
+        )
+    except pipeline_bridge.InvalidDecision as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    store = pipeline_bridge.get_store()
+    try:
+        store.set_approval_status(ticket_id, department_id, "procesando")
+    except SQLAlchemyError as exc:
+        logger.exception("No se pudo registrar la decisión de %s/%s", ticket_id, department_id)
+        raise _storage_unavailable() from exc
+    try:
+        task = resume_approval_branch.apply_async(kwargs={
+            "ticket_id": ticket_id, "department_id": department_id, "decision": decision.model_dump(mode="json"),
+        })
+    except Exception as exc:
+        logger.exception("No se pudo encolar la decisión de %s/%s", ticket_id, department_id)
+        try:
+            store.set_approval_status(ticket_id, department_id, "pendiente")
+        except SQLAlchemyError:
+            logger.exception("No se pudo liberar la sección %s/%s", ticket_id, department_id)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="La cola de tareas no está disponible.") from exc
+    logger.info("ticket=%s dept=%s decisión=%s como %s por %s", ticket_id, department_id, decision.decision,
+                decision.acting_as, current_user.email)
+    return RfpDecisionAccepted(ticket_id=ticket_id, department_id=department_id, decision=decision.decision,
+                               acting_as=decision.acting_as, approval_status="procesando", task_id=task.id)
+
+
+@router.get("/tickets/{ticket_id}/trace", response_model=list[TraceEventRead],
+            summary="Trazabilidad: qué agente hizo qué y en qué orden (Partes 1–3)")
+def get_trace(ticket_id: str, _: User = Depends(require_internal_user)) -> list[TraceEventRead]:
+    _load_ticket(ticket_id)
+    try:
+        rows = pipeline_bridge.get_store().list_trace(ticket_id)
+    except SQLAlchemyError as exc:
+        logger.exception("No se pudo leer el trace de %s", ticket_id)
+        raise _storage_unavailable() from exc
+    return [TraceEventRead.model_validate(row) for row in rows]
+
+
+@router.get("/tickets/{ticket_id}/final-document", response_model=FinalDocumentRead,
+            summary="Documento final consolidado (solo cuando todas las secciones están aprobadas)")
+def get_final_document(ticket_id: str, _: User = Depends(require_internal_user)) -> FinalDocumentRead:
+    _load_ticket(ticket_id)
+    try:
+        document = pipeline_bridge.get_store().get_final_document(ticket_id)
+    except SQLAlchemyError as exc:
+        logger.exception("No se pudo leer el documento final de %s", ticket_id)
+        raise _storage_unavailable() from exc
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="El documento final aún no está generado: faltan aprobaciones.")
+    return FinalDocumentRead.model_validate(document)

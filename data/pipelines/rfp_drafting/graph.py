@@ -47,6 +47,7 @@ from rfp_intake.departments import (
 )
 from rfp_intake.llm import LlmFn
 from rfp_intake.store import RfpStore
+from rfp_intake.trace import traced
 
 logger = logging.getLogger("rfp_drafting")
 
@@ -217,11 +218,25 @@ class DraftingNodes:
         return {"status": status, "approval_handoff": handoff}
 
 
+_CYCLE_AGENTS = {
+    "retrieve_knowledge": "rag_conocimiento",
+    "generate": "generador",
+    "eval_readability": "evaluador_legibilidad",
+    "eval_relevance": "evaluador_pertinencia",
+    "eval_compliance": "evaluador_cumplimiento",
+    "judge": "juez",
+}
+
+
+def _cycle_agent(name: str) -> Any:
+    return lambda state: f"{_CYCLE_AGENTS[name]}:{state.get('department_id')}"
+
+
 def build_cycle_graph(nodes: DraftingNodes) -> Any:
     builder = StateGraph(CycleState)
-    for name in ("retrieve_knowledge", "generate", "eval_readability", "eval_relevance",
-                 "eval_compliance", "judge"):
-        builder.add_node(name, getattr(nodes, name))
+    for name in _CYCLE_AGENTS:
+        builder.add_node(name, traced(getattr(nodes, name), store=nodes.store, part="drafting", node=name,
+                                      agent=_cycle_agent(name)))
     builder.add_edge(START, "retrieve_knowledge")
     builder.add_edge("retrieve_knowledge", "generate")
     for evaluator in ("eval_readability", "eval_relevance", "eval_compliance"):
@@ -282,9 +297,11 @@ def build_drafting_graph(
         ]
 
     builder = StateGraph(DraftingState)
-    builder.add_node("load_handoff", nodes.load_handoff)
-    builder.add_node("department_cycle", department_cycle)
-    builder.add_node("finalize", nodes.finalize)
+    builder.add_node("load_handoff", traced(nodes.load_handoff, store=store, part="drafting",
+                                            node="load_handoff", agent="carga_handoff_parte1"))
+    builder.add_node("department_cycle", department_cycle)  # sus nodos internos ya dejan su trace
+    builder.add_node("finalize", traced(nodes.finalize, store=store, part="drafting", node="finalize",
+                                        agent="handoff_parte2"))
     builder.add_edge(START, "load_handoff")
     builder.add_conditional_edges("load_handoff", fan_out, ["department_cycle"])
     builder.add_edge("department_cycle", "finalize")
