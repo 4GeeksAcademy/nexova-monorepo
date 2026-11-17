@@ -29,6 +29,13 @@ RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY scheduler/crontab /etc/crontab.scheduler
 
+# Sin privilegios (auditoría OWASP, C5); uid 1000 = dueño del bind mount de data/.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd --gid "${APP_GID}" app \
+ && useradd --uid "${APP_UID}" --gid app --no-create-home --shell /usr/sbin/nologin app
+
 WORKDIR /repo
+USER app
 
 CMD ["supercronic", "-passthrough-logs", "/etc/crontab.scheduler"]

@@ -30,18 +30,40 @@ Parte 3 (aprobación humana y cierre):
 - `GET /rfp/tickets/{ticket_id}/final-document`: documento final (404 hasta
   que todas las secciones activas estén aprobadas).
 
-Acceso: personal de Nexova. Un usuario externo (con `client_company`) recibe 403.
+Acceso: personal interno de Nexova (rol `admin` o `manager`, ver `authz.py`);
+cualquier otra cuenta recibe 403. Una decisión de aprobación solo la registra el
+responsable configurado en `RFP_APPROVERS` (JSON nombre → email) o un admin
+(auditoría OWASP, hallazgo C1).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import unicodedata
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
+from authz import is_admin, require_staff
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
-from sqlalchemy.exc import SQLAlchemyError
-
 from models import User
+from sqlalchemy.exc import SQLAlchemyError
+from tasks.rfp import (
+    enqueue_approvals,
+    generate_rfp_responses,
+    resume_approval_branch,
+    run_rfp_intake,
+)
+
 from rfp import pipeline_bridge
 from rfp.events import (
     SSE_HEADERS,
@@ -62,18 +84,45 @@ from rfp.schemas import (
     RfpTicketSummary,
     TraceEventRead,
 )
-from security import get_current_user
-from tasks.rfp import enqueue_approvals, generate_rfp_responses, resume_approval_branch, run_rfp_intake
 
 logger = logging.getLogger("rfp")
 
 router = APIRouter(prefix="/rfp", tags=["rfp"])
 
 
-def require_internal_user(current_user: User = Depends(get_current_user)) -> User:
+def require_internal_user(current_user: User = Depends(require_staff)) -> User:
+    """Personal interno = rol admin/manager. Una cuenta autoregistrada (`user`) nunca lo es."""
     if current_user.client_company:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo personal interno de Nexova.")
     return current_user
+
+
+def _norm_person(name: str | None) -> str:
+    decomposed = unicodedata.normalize("NFKD", name or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold().strip()
+
+
+def _approver_emails() -> dict[str, str]:
+    """`RFP_APPROVERS`: JSON `{"Nombre del responsable": "email"}`; vacío o inválido = solo admin."""
+    try:
+        raw = json.loads(os.environ.get("RFP_APPROVERS") or "{}")
+    except json.JSONDecodeError:
+        logger.error("RFP_APPROVERS no es JSON válido: solo un admin puede registrar decisiones.")
+        return {}
+    return {_norm_person(k): str(v).strip().lower() for k, v in raw.items()}
+
+
+def authorize_decision(user: User, expected_approver: str) -> None:
+    """La decisión la registra el propio responsable (por email) o un admin; nadie más."""
+    if is_admin(user):
+        return
+    email = _approver_emails().get(_norm_person(expected_approver))
+    if email and email == (user.email or "").strip().lower():
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Esta sección solo la puede decidir {expected_approver} (o un administrador).",
+    )
 
 
 def _storage_unavailable() -> HTTPException:
@@ -271,6 +320,8 @@ def submit_decision(
                   else "Esta sección no está esperando aprobación.")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
+    # Identidad antes que formato: quien llama debe SER el aprobador esperado (o admin).
+    authorize_decision(current_user, section.get("expected_approver") or "")
     # Guardrail antes de reanudar el grafo: formato, aprobador esperado y decisión permitida en esta ronda.
     try:
         decision = pipeline_bridge.validate_decision(

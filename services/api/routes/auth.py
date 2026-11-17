@@ -6,15 +6,19 @@ Router: /auth
 - POST /auth/forgot-password   -> envia (si el usuario existe) un email con link de reset.
 - POST /auth/reset-password    -> consume el token del email y fija una nueva contraseña.
 - POST /auth/change-password   -> (ruta protegida) cambia la contraseña de la sesion activa.
+
+Límite de intentos (auditoría OWASP, H1): 5 fallos de login por IP+email,
+3 peticiones de reset por email/IP, 10 tokens de reset por IP y 5 contraseñas
+actuales incorrectas por usuario en 15 min → 429 con `Retry-After`. Login de
+un email inexistente también ejecuta bcrypt (tiempo constante, sin enumeración).
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
-
 from email_service import send_password_reset_email
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from models import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -26,10 +30,23 @@ from models import (
     User,
 )
 from password_resets import consume_reset_token, create_reset_token
+from rate_limit import (
+    client_ip,
+    login_failures,
+    password_changes,
+    reset_attempts,
+    reset_requests,
+)
+from security import (
+    DUMMY_PASSWORD_HASH,
+    create_access_token,
+    get_current_user,
+    verify_password,
+)
+
 from routes.profiles import get_profile_by_user_id
 from routes.telemetry import log_telemetry_event
 from routes.users import get_user_by_email, set_user_password
-from security import create_access_token, get_current_user, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -38,9 +55,14 @@ GENERIC_FORGOT_PASSWORD_MESSAGE = "Si esa dirección está registrada, recibirá
 
 
 @router.post("/login", response_model=Token)
-def login(payload: LoginRequest) -> Token:
+def login(payload: LoginRequest, request: Request) -> Token:
+    key = f"login:{client_ip(request)}:{payload.email.strip().lower()}"
+    login_failures.check(key)
     user = get_user_by_email(payload.email)
-    if user is None or not verify_password(payload.password, user.hashed_password):
+    # bcrypt también para emails inexistentes: mismo tiempo de respuesta.
+    password_ok = verify_password(payload.password, user.hashed_password if user else DUMMY_PASSWORD_HASH)
+    if user is None or not password_ok:
+        login_failures.hit(key)
         log_telemetry_event(
             "login_failed",
             source="backend",
@@ -68,6 +90,7 @@ def login(payload: LoginRequest) -> Token:
             detail="Usuario inactivo.",
         )
 
+    login_failures.reset(key)
     access_token = create_access_token(user_id=user.id)
     log_telemetry_event(
         "login_succeeded",
@@ -90,8 +113,12 @@ def read_me(current_user: User = Depends(get_current_user)) -> MeRead:
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-def forgot_password(payload: ForgotPasswordRequest) -> MessageResponse:
+def forgot_password(payload: ForgotPasswordRequest, request: Request) -> MessageResponse:
     # Respuesta siempre 200 con mensaje generico: no debe revelar si el email existe.
+    keys = (f"forgot:{payload.email.strip().lower()}", f"forgot-ip:{client_ip(request)}")
+    reset_requests.check(*keys)
+    for key in keys:
+        reset_requests.hit(key)
     user = get_user_by_email(payload.email)
     if user is not None and user.is_active:
         token = create_reset_token(user.id)
@@ -118,9 +145,12 @@ def forgot_password(payload: ForgotPasswordRequest) -> MessageResponse:
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-def reset_password(payload: ResetPasswordRequest) -> MessageResponse:
+def reset_password(payload: ResetPasswordRequest, request: Request) -> MessageResponse:
+    key = f"reset:{client_ip(request)}"
+    reset_attempts.check(key)
     user_id = consume_reset_token(payload.token)
     if user_id is None:
+        reset_attempts.hit(key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El enlace es invalido, expiro o ya fue utilizado.",
@@ -143,7 +173,10 @@ def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
+    key = f"change:{current_user.id}"
+    password_changes.check(key)
     if not verify_password(payload.current_password, current_user.hashed_password):
+        password_changes.hit(key)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La contraseña actual es incorrecta.",

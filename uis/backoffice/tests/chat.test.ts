@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  authFrame,
   chatReducer,
   INITIAL_CHAT_STATE,
   interruptFrame,
@@ -8,7 +9,7 @@ import {
   type ChatState,
   type ServerEvent,
 } from "../lib/chat-protocol";
-import { connectChatSocket, type ChatConnectionState, type SocketLike } from "../lib/chat-socket";
+import { chatSocketUrl, connectChatSocket, type ChatConnectionState, type SocketLike } from "../lib/chat-socket";
 
 const SID = "6f1c2c1e-0000-4000-8000-000000000001";
 
@@ -190,11 +191,15 @@ function setup(token: string | null = "jwt") {
 }
 
 describe("connectChatSocket", () => {
-  it("manda el JWT y el session_id en la URL y no aplica tokens antes del snapshot", async () => {
+  it("no pone el JWT en la URL: lo manda como primer frame auth y no aplica tokens antes del snapshot", async () => {
     const t = setup();
     const socket = t.sockets[0];
-    expect(socket.url).toBe(`ws://api/chat/ws/${SID}?token=jwt`);
+    expect(socket.url).toBe(`ws://api/chat/ws/${SID}`);
+    expect(socket.url).not.toContain("token");
+    expect(socket.sent).toEqual([]); // nada antes de abrir
     socket.open();
+    expect(socket.sent).toEqual([authFrame("jwt")]);
+    expect(JSON.parse(socket.sent[0])).toEqual({ event: "auth", data: { token: "jwt" } });
     socket.receive(token(1, "temprano"));
     expect(t.client.sendUserMessage("hola")).toBe(false); // aún sin rehidratar
     socket.receive(snapshot);
@@ -202,7 +207,7 @@ describe("connectChatSocket", () => {
     expect(t.events.map((e) => e.event)).toEqual(["session_snapshot", "token_chunk"]);
     expect(t.states).toEqual(["connecting", "rehydrating", "live"]);
     expect(t.client.sendInterrupt("era sobre la factura")).toBe(true);
-    expect(socket.sent).toEqual([interruptFrame(SID, "era sobre la factura")]);
+    expect(socket.sent).toEqual([authFrame("jwt"), interruptFrame(SID, "era sobre la factura")]);
     t.controller.abort();
   });
 
@@ -215,7 +220,9 @@ describe("connectChatSocket", () => {
     expect(t.delays).toEqual([1_000, 2_000]);
     const third = t.sockets[2];
     expect(third.url).toContain(`/chat/ws/${SID}`);
+    expect(third.url).not.toContain("token=");
     third.open();
+    expect(third.sent).toEqual([authFrame("jwt")]); // cada reconexión se re-autentica
     third.receive(token(5, "perdido"));
     third.receive(snapshot);
     expect(t.events.map((e) => e.event)).toEqual(["session_snapshot"]);
@@ -243,6 +250,10 @@ describe("connectChatSocket", () => {
     missing.sockets[0].close(4404);
     await flush();
     expect(missing.states.at(-1)).toBe("not_found");
+  });
+
+  it("chatSocketUrl codifica el session_id y no admite credenciales", () => {
+    expect(chatSocketUrl("ws://api", "a/b?c")).toBe("ws://api/chat/ws/a%2Fb%3Fc");
   });
 
   it("sin token no abre el socket", () => {

@@ -88,8 +88,9 @@ def make_client(engine):
         app.include_router(incidents.router)
         app.dependency_overrides[get_db] = _db
         if authenticated:
+            # Personal interno: desde la auditoría OWASP (C2) los cambios de estado son solo staff.
             app.dependency_overrides[get_current_user] = lambda: User(
-                id="user-test", email="tester@example.com", hashed_password="x"
+                id="user-test", email="tester@example.com", hashed_password="x", role="manager"
             )
         return TestClient(app)
 

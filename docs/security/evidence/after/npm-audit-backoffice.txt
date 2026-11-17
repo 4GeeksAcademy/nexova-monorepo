@@ -1,0 +1,100 @@
+# npm audit --package-lock-only (uis/backoffice) — 2026-11-17T18:50:58Z
+# next: 16.4.6 / eslint-config-next: 16.4.6
+# npm audit report
+
+@vitest/mocker  <=4.1.11
+Severity: moderate
+Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock - https://github.com/advisories/GHSA-82fw-gwwq-j7x9
+Vitest: Code injection via unauthenticated manual mock registration - https://github.com/advisories/GHSA-qxg6-89mg-rqv8
+fix available via `npm audit fix --force`
+Will install vitest@5.1.0, which is a breaking change
+node_modules/@vitest/mocker
+  vitest  >=0.0.95
+  Depends on vulnerable versions of @vitest/mocker
+  Depends on vulnerable versions of picomatch
+  Depends on vulnerable versions of tinyglobby
+  Depends on vulnerable versions of tinypool
+  node_modules/vitest
+
+picomatch  *
+Severity: high
+picomatch vulnerable to ReDoS through single-branch repeated extglobs - https://github.com/advisories/GHSA-fc5q-39xc-vjpf
+fix available via `npm audit fix --force`
+Will install vitest@5.1.0, which is a breaking change
+node_modules/picomatch
+node_modules/tinyglobby/node_modules/picomatch
+node_modules/vite/node_modules/picomatch
+node_modules/vitest/node_modules/picomatch
+  fdir  >=5.2.1
+  Depends on vulnerable versions of picomatch
+  node_modules/tinyglobby/node_modules/fdir
+  node_modules/vite/node_modules/fdir
+    vite  >=6.3.0-beta.0
+    Depends on vulnerable versions of fdir
+    Depends on vulnerable versions of picomatch
+    Depends on vulnerable versions of tinyglobby
+    node_modules/vite
+  micromatch  >=4.0.0
+  Depends on vulnerable versions of picomatch
+  node_modules/micromatch
+    fast-glob  >=3.0.0
+    Depends on vulnerable versions of micromatch
+    node_modules/fast-glob
+      @next/eslint-plugin-next  >=14.3.0-canary.0
+      Depends on vulnerable versions of fast-glob
+      node_modules/@next/eslint-plugin-next
+        eslint-config-next  >=14.3.0-canary.0
+        Depends on vulnerable versions of @next/eslint-plugin-next
+        Depends on vulnerable versions of typescript-eslint
+        node_modules/eslint-config-next
+  tinyglobby  *
+  Depends on vulnerable versions of fdir
+  Depends on vulnerable versions of picomatch
+  node_modules/tinyglobby
+    @typescript-eslint/typescript-estree  >=8.47.1-alpha.0
+    Depends on vulnerable versions of tinyglobby
+    node_modules/@typescript-eslint/typescript-estree
+      @typescript-eslint/parser  >=8.47.1-alpha.0
+      Depends on vulnerable versions of @typescript-eslint/typescript-estree
+      node_modules/@typescript-eslint/parser
+      @typescript-eslint/type-utils  >=8.47.1-alpha.0
+      Depends on vulnerable versions of @typescript-eslint/typescript-estree
+      Depends on vulnerable versions of @typescript-eslint/utils
+      node_modules/@typescript-eslint/type-utils
+      @typescript-eslint/utils  >=8.47.1-alpha.0
+      Depends on vulnerable versions of @typescript-eslint/typescript-estree
+      node_modules/@typescript-eslint/utils
+        @typescript-eslint/eslint-plugin  >=8.47.1-alpha.0
+        Depends on vulnerable versions of @typescript-eslint/parser
+        Depends on vulnerable versions of @typescript-eslint/type-utils
+        Depends on vulnerable versions of @typescript-eslint/utils
+        node_modules/@typescript-eslint/eslint-plugin
+      typescript-eslint  >=8.47.1-alpha.0
+      Depends on vulnerable versions of @typescript-eslint/eslint-plugin
+      Depends on vulnerable versions of @typescript-eslint/parser
+      Depends on vulnerable versions of @typescript-eslint/typescript-estree
+      Depends on vulnerable versions of @typescript-eslint/utils
+      node_modules/typescript-eslint
+    eslint-import-resolver-typescript  >=3.8.0
+    Depends on vulnerable versions of tinyglobby
+    node_modules/eslint-import-resolver-typescript
+
+tinypool  <=2.1.1
+Severity: critical
+Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution - https://github.com/advisories/GHSA-5gmw-xhrv-c9v3
+Tinypool: Prototype Pollution Gadget to RCE in run() options - https://github.com/advisories/GHSA-85c8-ppgw-ccpr
+fix available via `npm audit fix --force`
+Will install vitest@5.1.0, which is a breaking change
+node_modules/tinypool
+
+
+18 vulnerabilities (1 moderate, 15 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+# npm audit --omit=dev --package-lock-only
+found 0 vulnerabilities

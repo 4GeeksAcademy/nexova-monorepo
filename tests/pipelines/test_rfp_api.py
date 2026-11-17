@@ -48,7 +48,8 @@ def ctx(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rfp_router.run_rfp_intake, "apply_async", fake_apply_async)
 
-    user = User(id="u1", email="ventas@nexova-solutions.com", hashed_password="x", role=Role.USER)
+    # Personal interno (admin): desde la auditoría OWASP (C1) `/rfp` exige rol admin/manager.
+    user = User(id="u1", email="ventas@nexova-solutions.com", hashed_password="x", role=Role.ADMIN)
     app = FastAPI()
     app.include_router(rfp_router.router)
     app.dependency_overrides[get_current_user] = lambda: user
@@ -311,3 +312,73 @@ def test_discarded_rfp_does_not_enqueue_part2(ctx, monkeypatch):
 
     result = rfp_tasks.run_rfp_intake.apply(kwargs={"ticket_id": "RFP-NO"}).get()
     assert "drafting_task_id" not in result
+
+
+# --------------------------------------------------------------------------- #
+# Auditoría OWASP (A05/A09): el error del proveedor del LLM no llega a la UI
+# --------------------------------------------------------------------------- #
+class PermissionDeniedError(Exception):
+    """Mismo nombre que la del SDK `openai` (la que devolvió LiteLLM/OpenRouter)."""
+
+
+PROVIDER_ERROR = PermissionDeniedError(
+    "Error code: 403 - litellm.APIError: OpenrouterException - Key limit exceeded (daily limit). "
+    "Manage it using https://openrouter.ai/workspaces/default/keys/abc123 $20.00 of $20.00 used"
+)
+
+
+def test_llm_provider_error_is_shown_generic_and_logged_in_full(ctx, monkeypatch, caplog):
+    from rfp import pipeline_bridge
+    from tasks import rfp as rfp_tasks
+
+    ticket_id = _upload(ctx.client).json()["ticket_id"]
+
+    def boom(ticket_id, store):
+        raise PROVIDER_ERROR
+
+    monkeypatch.setattr(pipeline_bridge, "run_intake", boom)
+    monkeypatch.setattr(rfp_tasks.run_rfp_intake, "max_retries", 0)
+    caplog.set_level("WARNING", logger="tasks")
+
+    with pytest.raises(PermissionDeniedError):
+        rfp_tasks.run_rfp_intake.apply(kwargs={"ticket_id": ticket_id}, throw=True).get()
+
+    message = ctx.client.get(f"/rfp/tickets/{ticket_id}").json()["error_message"]
+    assert "el modelo de lenguaje no está disponible ahora mismo" in message and "ref. " in message
+    for leaked in ("openrouter", "litellm", "Key limit", "$20.00", "https://"):
+        assert leaked.lower() not in message.lower()
+    assert any("Key limit exceeded" in (r.exc_text or "") for r in caplog.records)  # el detalle, solo en el log
+
+
+@pytest.mark.parametrize("exc, expected", [
+    (TimeoutError("read timed out"), "tardó demasiado"),
+    (ConnectionError("conn refused 10.0.0.5:4000"), "no se pudo contactar"),
+    (ValueError("detalle interno con /app/data/x"), "error interno"),
+])
+def test_public_error_never_echoes_the_exception_text(exc, expected):
+    from tasks.rfp import public_error
+
+    text = public_error(exc)
+    assert expected in text and str(exc) not in text
+
+
+def test_already_stored_provider_errors_are_hidden_by_the_api(ctx):
+    """Mensajes guardados ANTES del arreglo (o por otra ruta) tampoco llegan crudos a la UI."""
+    ticket_id = _upload(ctx.client).json()["ticket_id"]
+    raw = ("La reanudación de la aprobación de 'seleccion': intento 1 de 4 falló (PermissionDeniedError: "
+           "Error code: 403 - litellm.APIError: OpenrouterException - {\"error\":{\"message\":\"Key limit exceeded\"}} "
+           "https://openrouter.ai/workspaces/default/keys/abc $20.00 of $20.00 used); reintento en 15 s.")
+    ctx.store.record_error(ticket_id, raw)
+
+    for body in (ctx.client.get(f"/rfp/tickets/{ticket_id}").json(), ctx.client.get("/rfp/tickets").json()[0]):
+        message = body["error_message"]
+        assert message == ("La reanudación de la aprobación de 'seleccion': intento 1 de 4 falló "
+                           "(detalle técnico en los logs del worker); reintento en 15 s.")
+
+
+def test_our_own_error_messages_pass_unchanged():
+    from rfp.schemas import public_error_message
+
+    ours = "El análisis: intento 1 de 4 falló (el modelo de lenguaje tardó demasiado en responder; ref. t-1); reintento en 15 s."
+    assert public_error_message(ours) == ours
+    assert public_error_message(None) is None

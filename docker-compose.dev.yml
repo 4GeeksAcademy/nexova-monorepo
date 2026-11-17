@@ -1,0 +1,27 @@
+# Override SOLO para desarrollo local (no usar en un servidor):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Revierte, a propósito, parte del endurecimiento de docker-compose.yml:
+#   - API con --reload y Swagger (/docs) activo.
+#   - UIs con `next dev` (hot reload).
+#   - Redis y Qdrant publicados SOLO en 127.0.0.1 para scripts locales
+#     (siguen pidiendo REDIS_PASSWORD / QDRANT_API_KEY).
+#   - Flower disponible (perfil `dev`, basic auth): --profile dev.
+services:
+  api:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      - ENABLE_API_DOCS=true
+
+  uis:
+    environment:
+      - UIS_MODE=development
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  qdrant:
+    ports:
+      - "127.0.0.1:6333:6333"

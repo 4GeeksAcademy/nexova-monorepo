@@ -1,13 +1,16 @@
 import { abortableSleep } from "./rfp-stream";
 import { backoffDelayMs } from "./sse";
-import { interruptFrame, parseServerEvent, userMessageFrame, type ServerEvent } from "./chat-protocol";
+import { authFrame, interruptFrame, parseServerEvent, userMessageFrame, type ServerEvent } from "./chat-protocol";
 
 /**
  * Cliente WebSocket del chat de soporte.
  *
  * - Se conecta directo a la API (los route handlers de Next no hacen WebSocket)
- *   con el mismo JWT del backoffice en `?token=` (los navegadores no permiten
- *   poner `Authorization` en el handshake).
+ *   con el mismo JWT del backoffice. Los navegadores no permiten `Authorization`
+ *   en el handshake y el JWT NO va en `?token=` (acabaría en logs de proxies,
+ *   historial y cabeceras `Referer`): se manda como primer frame
+ *   `{"event":"auth","data":{"token":…}}` en cuanto abre el socket; el servidor
+ *   lo exige en menos de 5 s o cierra con 4401.
  * - Tras (re)conectar, NO entrega tokens hasta recibir `session_snapshot`: así
  *   la conversación se rehidrata desde el servidor antes de seguir el stream.
  * - Reconexión con backoff exponencial y jitter (`backoffDelayMs`, 1→30 s),
@@ -70,8 +73,9 @@ export function defaultChatWsBaseUrl(): string {
   return `${protocol}://${window.location.hostname}:8000`;
 }
 
-export function chatSocketUrl(baseUrl: string, sessionId: string, token: string): string {
-  return `${baseUrl}/chat/ws/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(token)}`;
+/** URL del socket de una sesión. No lleva credenciales: el JWT va en el frame `auth`. */
+export function chatSocketUrl(baseUrl: string, sessionId: string): string {
+  return `${baseUrl}/chat/ws/${encodeURIComponent(sessionId)}`;
 }
 
 export function connectChatSocket(options: ChatSocketOptions): ChatSocket {
@@ -97,12 +101,16 @@ export function connectChatSocket(options: ChatSocketOptions): ChatSocket {
     return new Promise((resolve) => {
       hydrated = false;
       onState(reconnecting ? "reconnecting" : "connecting");
-      const ws = createSocket(chatSocketUrl(baseUrl, sessionId, token));
+      const ws = createSocket(chatSocketUrl(baseUrl, sessionId));
       socket = ws;
       const onAbort = () => ws.close(1000, "client_closed");
       signal.addEventListener("abort", onAbort, { once: true });
 
-      ws.onopen = () => onState("rehydrating");
+      ws.onopen = () => {
+        // Primer frame obligatorio: sin él el servidor no envía el snapshot.
+        ws.send(authFrame(token));
+        onState("rehydrating");
+      };
       ws.onmessage = (message) => {
         if (typeof message.data !== "string") return;
         let raw: unknown;

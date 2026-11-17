@@ -27,7 +27,7 @@ def _client(authenticated: bool = True) -> TestClient:
     app.include_router(reporting_router.router)
     app.include_router(tasks_router.router)
     if authenticated:
-        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1")
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1", role="manager", client_company=None)  # staff (OWASP A01)
     return TestClient(app)
 
 

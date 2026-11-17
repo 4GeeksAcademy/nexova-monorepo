@@ -1,0 +1,57 @@
+Línea base de seguridad — fase: after — 2026-11-17T19:20:55Z
+Rama: feature/owasp-top10-audit @ 56fe1e5
+
+===== 1. Puertos publicados (docker compose ps) =====
+SERVICE     STATE     PORTS
+api         running   127.0.0.1:8000->8000/tcp
+qdrant      running   6333-6334/tcp
+redis       running   6379/tcp
+scheduler   running   
+uis         running   127.0.0.1:3000-3001->3000-3001/tcp
+worker      running   8000/tcp
+
+===== 1b. Puertos declarados en la configuración (docker compose config) =====
+api        perfil=-      user=(imagen)     127.0.0.1:8000->8000
+mcp        perfil=-      user=(imagen)     127.0.0.1:8100->8100
+qdrant     perfil=-      user=(imagen)     (sin puertos en el host)
+redis      perfil=-      user=(imagen)     (sin puertos en el host)
+scheduler  perfil=-      user=(imagen)     (sin puertos en el host)
+uis        perfil=-      user=(imagen)     127.0.0.1:3000->3000 127.0.0.1:3001->3001
+worker     perfil=-      user=(imagen)     (sin puertos en el host)
+
+===== 2. Usuario efectivo por contenedor (uid 0 = root) =====
+(usuario por defecto del contenedor; redis-server baja después a 'redis' — ver 2b)
+api        uid=1000 user=app
+qdrant     uid=0 user=root
+redis      uid=0 user=root
+scheduler  uid=1000 user=app
+uis        uid=1000 user=node
+worker     uid=1000 user=app
+
+===== 2b. Usuario real del proceso principal (docker compose top) =====
+qdrant: usuario=root proceso= ./qdrant
+redis: usuario=999 proceso= redis-server *:6379
+
+===== 3. Acceso sin credenciales desde el host =====
+Redis  6379 (PING sin AUTH):     cerrado / sin respuesta
+Qdrant 6333 (GET /collections):  cerrado / sin respuesta
+Flower 5555 (GET / panel web):   cerrado / sin respuesta
+API    8000 (GET /api/health):   HTTP 200
+Escucha en 0.0.0.0 vs 127.0.0.1 (lsof del host):
+COMMAND     PID      USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+com.docke  3979 miggy1312  210u  IPv4 0x25f62e0a07e63811      0t0  TCP 127.0.0.1:8000 (LISTEN)
+com.docke  3979 miggy1312  246u  IPv4 0x6b824f0ec09490c4      0t0  TCP 127.0.0.1:3001 (LISTEN)
+com.docke  3979 miggy1312  247u  IPv4 0xbd65fd9b9def92bb      0t0  TCP 127.0.0.1:3000 (LISTEN)
+
+===== 4. Modo de ejecución =====
+api: /usr/local/bin/python /usr/local/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 
+uis: next-server (v16.4.6)
+uis: UIS_MODE=production
+
+===== 5. Cabeceras de la API =====
+server: uvicorn
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: no-referrer
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+/docs: HTTP 404

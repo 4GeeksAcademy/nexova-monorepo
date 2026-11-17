@@ -143,9 +143,10 @@ def create_app(
         middleware=[
             Middleware(
                 CORSMiddleware,
-                allow_origins=["*"],
+                allow_origins=list(settings.allowed_origins),
                 allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-                allow_headers=["*"],
+                allow_headers=["Authorization", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version",
+                               "Last-Event-ID"],
                 expose_headers=["WWW-Authenticate", "Mcp-Session-Id", "Mcp-Protocol-Version"],
             )
         ],
@@ -156,7 +157,8 @@ def create_app(
 def main(factory: Callable[[Settings], Starlette] = create_app) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_env()
-    uvicorn.run(factory(settings), host=settings.host, port=settings.port, proxy_headers=True, forwarded_allow_ips="*")
+    uvicorn.run(factory(settings), host=settings.host, port=settings.port, proxy_headers=True,
+                forwarded_allow_ips=settings.forwarded_allow_ips)
 
 
 if __name__ == "__main__":
