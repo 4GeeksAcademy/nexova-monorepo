@@ -14,6 +14,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from rfp_intake.events import TicketCreatedPublisher
 from rfp_intake.llm import LlmFn
 from rfp_intake.nodes import IntakeNodes, after_classify, fan_out
 from rfp_intake.state import IntakeState
@@ -38,8 +39,10 @@ AGENTS: dict[str, AgentName] = {
 }
 
 
-def build_rfp_graph(llm: LlmFn, store: RfpStore) -> Any:
-    nodes = IntakeNodes(llm=llm, store=store)
+def build_rfp_graph(
+    llm: LlmFn, store: RfpStore, publisher: TicketCreatedPublisher | None = None
+) -> Any:
+    nodes = IntakeNodes(llm=llm, store=store, publisher=publisher)
     builder = StateGraph(IntakeState)
     for name in NODE_NAMES:
         builder.add_node(name, traced(getattr(nodes, name), store=store, part="intake", node=name,

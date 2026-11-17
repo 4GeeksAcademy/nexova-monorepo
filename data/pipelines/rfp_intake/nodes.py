@@ -37,6 +37,7 @@ from rfp_intake.departments import (
     HQ_UNKNOWN,
     department_card,
 )
+from rfp_intake.events import TicketCreatedPublisher, build_ticket_created_payload
 from rfp_intake.legibility import compute_readability
 from rfp_intake.llm import LlmFn
 from rfp_intake.prompts import (
@@ -204,9 +205,13 @@ def _doc(markdown: str) -> str:
 # Nodos
 # --------------------------------------------------------------------------- #
 class IntakeNodes:
-    def __init__(self, llm: LlmFn, store: RfpStore) -> None:
+    def __init__(
+        self, llm: LlmFn, store: RfpStore, publisher: TicketCreatedPublisher | None = None
+    ) -> None:
         self.llm = llm
         self.store = store
+        # Notificación en tiempo real (SSE); sin publicador no se emite nada.
+        self.publisher = publisher
 
     # -- Ingesta --------------------------------------------------------------
     def convert_to_markdown(self, state: IntakeState) -> dict[str, Any]:
@@ -280,7 +285,22 @@ class IntakeNodes:
             "readability": compute_readability(markdown),
         }
         self.store.save_metadata(state["ticket_id"], metadata, extracted.rfp_reference)
+        self._notify_ticket_created(state["ticket_id"], metadata, extracted.rfp_reference)
         return {"metadata": metadata, "rfp_id": extracted.rfp_reference}
+
+    def _notify_ticket_created(
+        self, ticket_id: str, metadata: dict[str, Any], rfp_id: str | None
+    ) -> None:
+        """RFP válida con metadatos guardados: avisa al dashboard (nunca interrumpe el análisis)."""
+        if self.publisher is None:
+            return
+        try:
+            payload = build_ticket_created_payload(
+                self.store.get_ticket(ticket_id), metadata, rfp_id, ticket_id
+            )
+            self.publisher(payload)
+        except Exception:  # noqa: BLE001 - la notificación es accesoria
+            logger.warning("ticket=%s no se pudo notificar rfp_ticket_created", ticket_id, exc_info=True)
 
     # -- Agente orquestador ---------------------------------------------------
     def orchestrate(self, state: IntakeState) -> dict[str, Any]:

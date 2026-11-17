@@ -16,6 +16,7 @@ import secrets
 from pathlib import Path
 from typing import Any
 
+from rfp_intake.events import TicketCreatedPublisher, publish_ticket_created
 from rfp_intake.graph import build_rfp_graph
 from rfp_intake.llm import LlmFn, OpenAIJsonLLM
 from rfp_intake.store import RfpStore, SqlRfpStore, TicketNotFound
@@ -88,7 +89,11 @@ def register_upload(
 
 
 def run_intake(
-    ticket_id: str, *, store: RfpStore | None = None, llm: LlmFn | None = None
+    ticket_id: str,
+    *,
+    store: RfpStore | None = None,
+    llm: LlmFn | None = None,
+    publisher: TicketCreatedPublisher | None = publish_ticket_created,
 ) -> dict[str, Any]:
     """Ejecuta el grafo completo sobre el ticket. Las excepciones suben al llamador (Celery)."""
     store = store or SqlRfpStore()
@@ -97,7 +102,7 @@ def run_intake(
     if not pdf_path.is_file():
         raise FileNotFoundError(f"No existe el PDF del ticket {ticket_id}: {pdf_path}")
 
-    graph = build_rfp_graph(llm=llm or OpenAIJsonLLM(), store=store)
+    graph = build_rfp_graph(llm=llm or OpenAIJsonLLM(), store=store, publisher=publisher)
     final = graph.invoke({"ticket_id": ticket_id, "pdf_path": str(pdf_path)})
     result = {
         "ticket_id": ticket_id,
