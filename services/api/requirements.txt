@@ -26,5 +26,8 @@ openai>=3.49.0
 # Agente LangGraph (Parte 1): grafo explícito sobre el RAG + checkpoints en SQLite.
 langgraph>=1.2.20
 langgraph-checkpoint-sqlite>=3.1.3
-# Tools del agente (Parte 2): llamadas HTTP de solo lectura a incidentes e inventario.
+# HTTP: cliente OAuth de las tools del agente y tests.
 httpx>=0.28
+# Agente → MCP Server (mcps/nexova-tools): tools cargadas con langchain-mcp-adapters
+# (Streamable HTTP + OAuth client_credentials). Igual que fija uv.lock (0.3.2, mcp 1.30).
+langchain-mcp-adapters>=0.3.2

@@ -34,10 +34,38 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - GENERATION_MODEL=${GENERATION_MODEL}
       - RAG_MIN_SCORE=${RAG_MIN_SCORE:-0.30}
+      # Agente → MCP Server (único camino hacia incidentes e inventario).
+      # El recurso OAuth es la URL PÚBLICA del MCP (la que ve Logto), no la interna.
+      - AGENT_MCP_URL=${AGENT_MCP_URL:-http://mcp:8100/mcp}
+      - AGENT_MCP_RESOURCE=${MCP_RESOURCE_URL}
+      - AGENT_MCP_TOKEN_URL=${AGENT_MCP_TOKEN_URL}
+      - AGENT_MCP_CLIENT_ID=${AGENT_MCP_CLIENT_ID}
+      - AGENT_MCP_CLIENT_SECRET=${AGENT_MCP_CLIENT_SECRET}
     depends_on:
       redis:
         condition: service_healthy
       qdrant:
+        condition: service_started
+    networks:
+      - nexova-net
+
+  # MCP Server de Nexova (mcps/nexova-tools): tickets e inventario de solo
+  # lectura por Streamable HTTP, protegido con OAuth (MCP Auth + Logto).
+  # En Codespaces, el puerto 8100 debe reenviarse con visibilidad pública.
+  mcp:
+    build:
+      context: ./mcps/nexova-tools
+      dockerfile: Dockerfile
+    ports:
+      - "8100:8100"
+    environment:
+      - MCP_RESOURCE_URL=${MCP_RESOURCE_URL}
+      - MCP_OAUTH_ISSUER=${MCP_OAUTH_ISSUER}
+      - NEXOVA_API_URL=http://api:8000
+      - NEXOVA_API_EMAIL=${NEXOVA_API_EMAIL}
+      - NEXOVA_API_PASSWORD=${NEXOVA_API_PASSWORD}
+    depends_on:
+      api:
         condition: service_started
     networks:
       - nexova-net

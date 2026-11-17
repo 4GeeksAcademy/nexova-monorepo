@@ -1,23 +1,22 @@
 """
-Tool de inventario: consulta en vivo el stock del gestor de inventario (solo lectura).
+Tool de inventario: consulta en vivo el stock a través del MCP Server
+`mcps/nexova-tools` (`query_inventory`, action `list`; el inventario es de
+solo lectura por diseño en el servidor).
 
-    GET /inventory/products   (sin auth en la API actual)
-
-Devuelve los productos cuyo nombre o SKU contiene el término buscado (sin
-distinguir mayúsculas ni tildes), con su stock actual frente al umbral mínimo.
-Sin término, devuelve los primeros productos (útil para "¿qué está bajo mínimo?").
+El MCP Server filtra por nombre o SKU sin distinguir mayúsculas, tildes ni
+plurales. Sin término de búsqueda devuelve los primeros productos (útil para
+"¿qué está bajo mínimo?").
 """
 
 from __future__ import annotations
 
 import time
-import unicodedata
 from typing import Literal
 
-import httpx
 from pydantic import BaseModel, Field, ValidationError, computed_field
 
-from agent.tools.transport import ToolCallError, ToolStatus, http_get
+from agent.tools.mcp_client import McpToolCaller, call_mcp_tool
+from agent.tools.transport import ToolCallError, ToolStatus
 
 MAX_PRODUCTS = 20
 
@@ -29,7 +28,7 @@ class InventoryQuery(BaseModel):
 
 
 class ProductStock(BaseModel):
-    """Salida: los campos de `GET /inventory/products` relevantes para soporte."""
+    """Salida: los campos del inventario relevantes para soporte."""
 
     id: int
     name: str
@@ -54,27 +53,11 @@ class InventoryToolResult(BaseModel):
     duration_ms: float = 0.0
 
 
-def _normalize(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-
-
-def _stem(word: str) -> str:
-    """Raíz tolerante a plurales y género: `ratones` → `raton`, `ergonomicos` → `ergonomic`."""
-    return word[: max(4, len(word) - 2)] if len(word) > 4 else word
-
-
-def _matches(product: ProductStock, term: str) -> bool:
-    needle = _normalize(term)
-    words = [w for w in needle.replace("-", " ").split() if len(w) > 2] or [needle]
-    haystack = _normalize(f"{product.name} {product.sku}")
-    return all(_stem(word) in haystack for word in words)
-
-
 def lookup_inventory(
-    query: InventoryQuery, *, client: httpx.Client | None = None
+    query: InventoryQuery, *, call_tool: McpToolCaller | None = None
 ) -> InventoryToolResult:
-    """Consulta el gestor de inventario. Nunca lanza: los fallos van en `status`."""
+    """Consulta el inventario vía MCP. Nunca lanza: los fallos van en `status`."""
+    call = call_tool or call_mcp_tool
     start = time.perf_counter()
 
     def done(status: ToolStatus, products: list[ProductStock] | None = None, detail: str | None = None):
@@ -86,16 +69,17 @@ def lookup_inventory(
             duration_ms=round((time.perf_counter() - start) * 1000, 1),
         )
 
+    arguments: dict = {"action": "list", "limit": MAX_PRODUCTS}
+    if query.product:
+        arguments["search"] = query.product
     try:
-        payload = http_get("/inventory/products", client=client)
-        products = [ProductStock.model_validate(item) for item in payload]
+        payload = call("query_inventory", arguments)
+        products = [ProductStock.model_validate(item) for item in payload["products"]]
     except ToolCallError as exc:
         return done(exc.status, detail=exc.detail)
-    except (ValidationError, TypeError):
+    except (ValidationError, TypeError, KeyError):
         return done("error", detail="Respuesta del gestor de inventario con formato inesperado")
 
-    if query.product:
-        products = [p for p in products if _matches(p, query.product)]
     if not products:
         return done("not_found", detail="Ningún producto coincide con la búsqueda")
-    return done("ok", products[:MAX_PRODUCTS])
+    return done("ok", products)

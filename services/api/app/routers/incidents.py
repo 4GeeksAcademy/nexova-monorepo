@@ -6,14 +6,18 @@ Router: /api/incidents
 - GET  /api/incidents/results/export   -> devuelve el último análisis en CSV
 - GET  /api/incidents                  -> lista tickets (filtros status/category/client_company)
 - GET  /api/incidents/{ticket_id}      -> un ticket; 404 si no existe
+- POST /api/incidents                  -> crea un ticket (siempre OPEN)
+- PATCH /api/incidents/{ticket_id}/status -> ciclo de vida del ticket
+                                          (404 / 409 invalid_transition / 422)
 
-Los dos GET de tickets son de solo lectura y los consulta la tool de tickets
-del agente LangGraph (`services/api/agent/tools/tickets.py`).
+Estos endpoints los consume el MCP Server `mcps/nexova-tools`, que es el
+único camino del agente LangGraph hacia el gestor de incidentes.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import get_args
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -23,13 +27,24 @@ from sqlmodel import Session
 import incidents_analyzer as ia
 
 from app import incidents_store
-from app.schemas import IncidentAnalysisSummary, IncidentRead
+from app.schemas import (
+    IncidentAnalysisSummary,
+    IncidentCategory,
+    IncidentCreate,
+    IncidentRead,
+    IncidentStatus,
+    IncidentStatusUpdate,
+)
 from app.state import get_last_summary, set_last_summary
 from database import get_db
 from models import User
 from security import get_current_user
 
 logger = logging.getLogger(__name__)
+
+# Los Literal del contrato HTTP deben ser los mismos valores que valida el analizador.
+if set(get_args(IncidentCategory)) != ia.VALID_CATEGORIES or set(get_args(IncidentStatus)) != ia.VALID_STATUSES:
+    raise RuntimeError("Las categorías/estados de app.schemas no coinciden con incidents_analyzer.")
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -140,6 +155,55 @@ def list_incidents(
     return [IncidentRead.model_validate(t) for t in tickets]
 
 
+@router.post("", response_model=IncidentRead, status_code=201)
+def create_incident(
+    payload: IncidentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncidentRead:
+    """Crea un ticket individual. El servidor asigna `ticket_id` (NXV-NNNNNN) y `status = OPEN`."""
+    ticket = incidents_store.create_ticket(
+        db,
+        client_company=payload.client_company,
+        category=payload.category,
+        description=payload.description,
+        agent_id=payload.agent_id,
+        ticket_date=payload.date,
+    )
+    logger.info("Incidentes: ticket %s creado por %s", ticket.ticket_id, current_user.id)
+    return IncidentRead.model_validate(ticket)
+
+
+@router.patch("/{ticket_id}/status", response_model=IncidentRead)
+def update_incident_status(
+    ticket_id: str,
+    payload: IncidentStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> IncidentRead:
+    """
+    Endpoint de ciclo de vida: OPEN→CLOSED, OPEN→DISCARDED y CLOSED→OPEN.
+    DISCARDED es final. Otra transición responde 409 (`invalid_transition`).
+    """
+    try:
+        ticket = incidents_store.update_status(db, ticket_id, payload.status)
+    except incidents_store.TicketNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.") from None
+    except incidents_store.InvalidTransitionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "invalid_transition",
+                "message": str(exc),
+                "current_status": exc.current,
+                "requested_status": exc.target,
+                "allowed": exc.allowed,
+            },
+        ) from None
+    logger.info("Incidentes: ticket %s → %s por %s", ticket.ticket_id, ticket.status, current_user.id)
+    return IncidentRead.model_validate(ticket)
+
+
 @router.get("/{ticket_id}", response_model=IncidentRead)
 def get_incident(
     ticket_id: str,
@@ -149,5 +213,5 @@ def get_incident(
     """Un ticket por su id (p. ej. NXV-000001). Solo lectura."""
     ticket = incidents_store.get_ticket(db, ticket_id)
     if ticket is None:
-        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.")
+        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.") from None
     return IncidentRead.model_validate(ticket)

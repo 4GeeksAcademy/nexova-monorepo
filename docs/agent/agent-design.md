@@ -170,14 +170,12 @@ El usuario nunca indica la fuente. En el trace, `route.method` dice si decidió 
 | `lookup_tickets` | `TicketQuery{ticket_id: NXV-\d{6}?, status?, category?, client_company?, limit}` | `TicketToolResult{status, query, tickets: [TicketInfo{ticket_id, date, client_company, category, description, agent_id, status, satisfaction_score, updated_at}], detail, duration_ms}` |
 | `lookup_inventory` | `InventoryQuery{product?}` | `InventoryToolResult{status, query, products: [ProductStock{id, name, sku, category, office, current_stock, min_stock_threshold, below_threshold}], detail, duration_ms}` |
 
+> **Actualizado en la Parte 3:** las tools ya no llaman a la API por HTTP. Pasan por el MCP Server `mcps/nexova-tools` (ver la sección siguiente). Los contratos de esta tabla no cambiaron.
+
 - **Una responsabilidad por tool:** cada tool consulta un solo servicio.
-- **Solo lectura:** la única salida HTTP es `transport.http_get`, que solo sabe hacer `GET`. El eval T7 lo verifica.
-- **Timeout numérico:** `AGENT_TOOL_TIMEOUT_SECONDS`, **4.0 s** por defecto, aplicado en cada petición. En la prueba real contra una IP sin respuesta, la tool cortó a los 4,0 s y el grafo respondió por `tool_fallback`.
-- **Sin excepciones:** las tools nunca lanzan. Un timeout, un error de red, un 5xx, un 401/403, un 404 o un JSON inválido se convierten en `status = timeout | error | not_found`.
-- **Auth:**
-  - `GET /api/incidents*` exige JWT. `/agent/query` reenvía el JWT de quien llama mediante un `ContextVar`, y los scripts usan `INCIDENTS_API_TOKEN`. El token nunca entra en el estado, los checkpoints ni el trace (eval T10).
-  - `GET /inventory/products` no tiene auth en la API actual.
-- **Destino:** `AGENT_TOOLS_BASE_URL`, `http://localhost:8000` por defecto. Es la propia API, y vale igual dentro del contenedor.
+- **Solo lectura:** las tools solo invocan tools MCP de lectura (`get_ticket`, `list_tickets`, `query_inventory` con `action=list`), y el token del agente solo tiene scopes de lectura. El eval T7 lo verifica.
+- **Timeout numérico:** `AGENT_TOOL_TIMEOUT_SECONDS`, **4.0 s** por defecto. Es el timeout total de cada llamada MCP, incluidos el token, el discovery y la llamada.
+- **Sin excepciones:** las tools nunca lanzan. Un timeout, un servidor caído, un 401, `NOT_FOUND` o cualquier otro código del MCP se convierten en `status = timeout | error | not_found`.
 
 ### Datos reales del gestor de incidentes
 
@@ -220,10 +218,80 @@ uv run --project services/api pytest tests/pipelines/test_agent_tools_evals.py -
 | T4 | Ticket inexistente → "No encontré…" |
 | T5 | Pregunta mixta → tickets antes que RAG |
 | T6 | Pregunta de stock → tool de inventario |
-| T7 | Solo peticiones GET |
+| T7 | Solo tools MCP de lectura |
 | T8 | Si el LLM del router cae, se usan las reglas |
-| T10 | El JWT se reenvía, pero no aparece en el trace |
+| T10 | Un único camino: sin JWT reenviado ni HTTP directo, y scopes de solo lectura |
+
+> Desde la Parte 3, el servicio simulado es un `McpToolCaller` falso con el contrato del MCP Server (nombres de tool, `structuredContent` y códigos de error), no un `httpx.MockTransport`.
 
 También hay evals para la tool fallida en una pregunta mixta, la caída del inventario, el timeout numérico configurable y las reglas del router.
 
 **Con traces reales (T9):** el estado en vivo del ticket aparece en la respuesta, la pregunta de política usa solo el RAG, la mixta va tickets → RAG, y la de stock usa inventario.
+
+## Parte 3 — MCP Server con OAuth (`mcps/nexova-tools`)
+
+Las capacidades de incidentes e inventario ya no viven dentro del grafo. Ahora las expone un **MCP Server independiente**, reutilizable por cualquier cliente MCP autorizado. El agente es uno de esos clientes. Diseño completo, scopes, códigos de error y pasos con MCP Playground en [`mcps/nexova-tools/README.es.md`](../../mcps/nexova-tools/README.es.md).
+
+```mermaid
+graph LR;
+	agent["Agente LangGraph<br/>(services/api)"] -- "Streamable HTTP<br/>Bearer OAuth (M2M)" --> mcp["MCP Server<br/>mcps/nexova-tools"];
+	playground["MCP Playground / otros clientes"] -- "Bearer OAuth" --> mcp;
+	agent -. "client_credentials<br/>incidents:read inventory:read" .-> logto["Logto (OIDC)"];
+	mcp -. "JWKS / issuer" .-> logto;
+	mcp -- "JWT de servicio" --> api["services/api<br/>/api/incidents · /inventory"];
+```
+
+### Servidor
+
+- **Transporte:** Streamable HTTP, stateless.
+- **Auth:** MCP Auth en modo resource server, con Protected Resource Metadata y validación de JWT de Logto.
+- **Tools:**
+  - `list_tickets`, `get_ticket` (`incidents:read`);
+  - `create_ticket`, `update_ticket_status` (`incidents:write`);
+  - `query_inventory` (`inventory:read`, solo lectura con rechazo explícito `READ_ONLY_RESOURCE`).
+- **Auditoría:** un log JSON por invocación.
+
+### Backend
+
+Se añadieron `POST /api/incidents` (alta, siempre `OPEN`) y el endpoint de ciclo de vida `PATCH /api/incidents/{id}/status`:
+- transiciones `OPEN→CLOSED|DISCARDED` y `CLOSED→OPEN`;
+- respuestas 404 / 409 `invalid_transition` / 422.
+
+Tests en `tests/incidents/`.
+
+### Migración del agente
+
+- `agent/tools/mcp_client.py` carga las tools con `langchain-mcp-adapters` (`MultiServerMCPClient`, `streamable_http`) y las invoca con un `ToolCall` para leer el `structuredContent`.
+- **Token:** se obtiene con `client_credentials` y `resource` = recurso MCP. Se cachea hasta que caduca y se renueva una vez si el servidor responde 401.
+- **Grafo:** sigue siendo síncrono. `call_tool()` ejecuta la corrutina con `asyncio.run` y el timeout de la tool.
+- `lookup_tickets` y `lookup_inventory` mantienen firma y contratos, pero reciben `call_tool` en lugar de `client`.
+- `graph.py`, `nodes.py` y `routing.py` **no cambian**, así que el enrutamiento RAG / tools es el mismo. Las 33 evals de agente siguen en verde.
+- **Eliminado:**
+  - `transport.http_get`, `AGENT_TOOLS_BASE_URL`, `INCIDENTS_API_TOKEN`;
+  - el reenvío del JWT de quien llama (`forwarded_credentials`, `run_agent(auth_token=...)`).
+
+  El agente no tiene otro camino hacia el Incidents Manager.
+- **Variables:**
+  - `AGENT_MCP_URL` (por defecto `http://localhost:8100/mcp`; en Docker, `http://mcp:8100/mcp`);
+  - `AGENT_MCP_RESOURCE` (la URL pública, `= MCP_RESOURCE_URL`);
+  - `AGENT_MCP_TOKEN_URL`;
+  - `AGENT_MCP_CLIENT_ID` / `AGENT_MCP_CLIENT_SECRET`;
+  - `AGENT_MCP_SCOPES`.
+
+### Evals
+
+- `tests/pipelines/test_agent_mcp_client.py` usa el cliente MCP de producción contra un MCP Server real en local (SDK `mcp`, uvicorn) con un token endpoint OAuth falso. Comprueba:
+  - tickets e inventario de extremo a extremo;
+  - `client_credentials` con `resource` y `scope`;
+  - token cacheado y renovado tras un 401;
+  - mapeo de `NOT_FOUND` / `FORBIDDEN_SCOPE`;
+  - credenciales malas y servidor caído → `error`;
+  - servidor lento → `timeout`.
+- `mcps/nexova-tools/tests/` (31 tests) cubre:
+  - la metadata pública y el 401 sin token o con token caducado, de firma ajena, de otro `aud` o de otro issuer;
+  - el discovery documentado;
+  - el scope de cada tool;
+  - el flujo completo de un ticket (con el `PATCH …/status`);
+  - `INVALID_TRANSITION`, `VALIDATION_ERROR`, `READ_ONLY_RESOURCE` y `UPSTREAM_UNAVAILABLE`;
+  - una línea de auditoría por llamada;
+  - la identidad aislada por petición.

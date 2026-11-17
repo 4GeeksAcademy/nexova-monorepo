@@ -6,10 +6,12 @@ Graba traces REALES del agente (Qdrant + modelos de 4Geeks) como fixtures de los
 Requiere:
 - la colección indexada (`scripts/rag_setup.py`) y las variables de `.env`
   (QDRANT_URL, LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL, GENERATION_MODEL);
-- la API corriendo (tools en vivo: `AGENT_TOOLS_BASE_URL`, por defecto
-  http://localhost:8000) con los tickets cargados vía `POST /api/incidents/analyze`;
-- `INCIDENTS_API_TOKEN`: un JWT válido para el gestor de incidentes (nunca se
-  guarda en el trace).
+- la API y el MCP Server `mcps/nexova-tools` corriendo (tools en vivo vía
+  MCP: `AGENT_MCP_URL`, por defecto http://localhost:8100/mcp), con los
+  tickets cargados vía `POST /api/incidents/analyze`;
+- las credenciales M2M del agente en Logto (`AGENT_MCP_TOKEN_URL`,
+  `AGENT_MCP_CLIENT_ID`, `AGENT_MCP_CLIENT_SECRET`; el token nunca se guarda
+  en el trace).
 
 Ejecuta el grafo de producción —enrutador LLM real, checkpoints SQLite y trace
 JSON— para cada caso y copia el trace a

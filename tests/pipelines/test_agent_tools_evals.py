@@ -4,10 +4,13 @@ Evals de la Parte 2 del agente: tools fuera del RAG y enrutamiento. Se ejecutan 
     uv run --project services/api pytest tests/pipelines/test_agent_tools_evals.py -v
 
 - Evals de flujo (T1–T8, T10): las tools REALES (`lookup_tickets`,
-  `lookup_inventory`) hablan con un servicio sustituido por
-  `httpx.MockTransport` (mismas rutas y forma de respuesta que la API). El
-  enrutador LLM se sustituye por decisiones fijas, salvo en T8, que comprueba
-  el respaldo por reglas. Cada eval corre el grafo y verifica sobre el trace JSON.
+  `lookup_inventory`) llaman al MCP Server `mcps/nexova-tools` a través de un
+  `McpToolCaller` falso con el mismo contrato que el servidor (nombres de
+  tool, argumentos, `structuredContent` y códigos de error). El cliente MCP
+  real (OAuth + `langchain-mcp-adapters`) se prueba en
+  `test_agent_mcp_client.py`. El enrutador LLM se sustituye por decisiones
+  fijas, salvo en T8, que comprueba el respaldo por reglas. Cada eval corre el
+  grafo y verifica sobre el trace JSON.
 - Evals con traces REALES (T9): leen corridas grabadas con
   `scripts/agent_record_traces.py` contra la API, Supabase, Qdrant y los
   modelos de 4Geeks, con el enrutador LLM real.
@@ -21,7 +24,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,12 +35,12 @@ from agent import nodes  # noqa: E402
 from agent.graph import build_graph, sqlite_checkpointer  # noqa: E402
 from agent.routing import RouteDecision, classify_question, classify_with_rules  # noqa: E402
 from agent.runner import run_agent  # noqa: E402
-from agent.tools.inventory import InventoryQuery, lookup_inventory  # noqa: E402
+from agent.tools.inventory import lookup_inventory  # noqa: E402
 from agent.tools.tickets import lookup_tickets  # noqa: E402
+from agent.tools.transport import ToolCallError  # noqa: E402
 from agent.tracing import load_trace  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "agent_traces"
-TOKEN = "jwt-de-prueba"
 
 TICKET = {
     "ticket_id": "NXV-000482",
@@ -65,35 +67,30 @@ POLICY_CHUNK = {
 
 
 class FakeServices:
-    """Servicio de incidentes + inventario detrás de `httpx.MockTransport`. Registra cada petición."""
+    """MCP Server falso: mismas tools, argumentos y `structuredContent` que `mcps/nexova-tools`."""
 
     def __init__(self, *, incidents_down: bool = False, inventory_down: bool = False) -> None:
         self.incidents_down = incidents_down
         self.inventory_down = inventory_down
-        self.requests: list[httpx.Request] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        path = request.url.path
-        if path.startswith("/api/incidents"):
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((name, arguments))
+        if name in ("get_ticket", "list_tickets"):
             if self.incidents_down:
-                raise httpx.ReadTimeout("sin respuesta", request=request)
-            if request.headers.get("Authorization") != f"Bearer {TOKEN}":
-                return httpx.Response(401, json={"detail": "No se pudo validar las credenciales."})
-            if path == "/api/incidents/NXV-000482":
-                return httpx.Response(200, json=TICKET)
-            if path == "/api/incidents":
-                return httpx.Response(200, json=[TICKET])
-            return httpx.Response(404, json={"detail": "No existe el ticket."})
-        if path == "/inventory/products":
+                raise ToolCallError("timeout", "Sin respuesta en 4 s")
+            if name == "get_ticket":
+                if arguments["ticket_id"] != "NXV-000482":
+                    raise ToolCallError("not_found", "MCP NOT_FOUND")
+                return TICKET
+            return {"count": 1, "tickets": [TICKET]}
+        if name == "query_inventory":
             if self.inventory_down:
-                raise httpx.ConnectError("conexión rechazada", request=request)
-            return httpx.Response(200, json=PRODUCTS)
-        return httpx.Response(404)
-
-    def client(self) -> httpx.Client:
-        return httpx.Client(transport=httpx.MockTransport(self.handler), base_url="http://servicios")
-
+                raise ToolCallError("error", "MCP UPSTREAM_UNAVAILABLE")
+            term = (arguments.get("search") or "").casefold().split()
+            match = [p for p in PRODUCTS if all(w[:4] in p["name"].casefold() for w in term)]
+            return {"count": len(match), "truncated": False, "products": match}
+        raise AssertionError(f"tool inesperada: {name}")
 
 class FakeRAG:
     def __init__(self, context: list[dict[str, Any]]) -> None:
@@ -113,21 +110,19 @@ class FakeRAG:
 @pytest.fixture(autouse=True)
 def trace_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("AGENT_TRACE_DIR", str(tmp_path / "traces"))
-    monkeypatch.delenv("INCIDENTS_API_TOKEN", raising=False)
     return tmp_path / "traces"
 
 
 def _run(question: str, route: RouteDecision | None, services: FakeServices, rag: FakeRAG, *, classify=None):
-    client = services.client()
     graph = build_graph(
         retrieve_fn=rag.retrieve,
         generate_fn=rag.generate_answer,
         classify_fn=classify or (lambda _q: route),
-        ticket_tool=partial(lookup_tickets, client=client),
-        inventory_tool=partial(lookup_inventory, client=client),
+        ticket_tool=partial(lookup_tickets, call_tool=services.call_tool),
+        inventory_tool=partial(lookup_inventory, call_tool=services.call_tool),
         checkpointer=sqlite_checkpointer(":memory:"),
     )
-    result = run_agent(question, graph=graph, auth_token=TOKEN)
+    result = run_agent(question, graph=graph)
     return result, load_trace(result.run_id)
 
 
@@ -171,7 +166,7 @@ def test_T2_policy_question_uses_rag_not_tools() -> None:
     assert trace["sources_used"] == ["rag"]
     assert nodes.LOOKUP_TICKETS not in trace["nodes"]
     assert nodes.LOOKUP_INVENTORY not in trace["nodes"]
-    assert services.requests == []  # ninguna llamada a servicios externos
+    assert services.calls == []  # ninguna llamada al MCP Server
     assert trace["nodes"][-1] == nodes.GENERATE
 
 
@@ -286,39 +281,34 @@ def test_T7_tools_are_read_only() -> None:
         rag,
     )
 
-    assert {r.url.path for r in services.requests} == {"/api/incidents/NXV-000482", "/inventory/products"}
-    assert {r.method for r in services.requests} == {"GET"}
+    # Solo tools MCP de lectura; nunca create_ticket / update_ticket_status ni escrituras de inventario.
+    assert services.calls == [
+        ("get_ticket", {"ticket_id": "NXV-000482"}),
+        ("query_inventory", {"action": "list", "limit": 20, "search": "silla"}),
+    ]
 
 
-def test_T10_jwt_is_forwarded_but_never_stored(trace_dir: Path) -> None:
-    services, rag = FakeServices(), FakeRAG([])
-    _run(
-        "¿En qué estado está el ticket NXV-000482?",
-        RouteDecision(tickets=True, ticket_id="NXV-000482", method="llm"),
-        services,
-        rag,
-    )
+def test_T10_agent_has_a_single_path_through_mcp() -> None:
+    """Sin JWT reenviado ni HTTP directo: el único camino es el MCP con scopes de lectura."""
+    import inspect
 
-    incident_calls = [r for r in services.requests if r.url.path.startswith("/api/incidents")]
-    assert incident_calls[0].headers["Authorization"] == f"Bearer {TOKEN}"
-    (trace_file,) = trace_dir.glob("*.json")
-    assert TOKEN not in trace_file.read_text(encoding="utf-8")
+    from agent.tools import mcp_client, transport
+
+    assert "auth_token" not in inspect.signature(run_agent).parameters
+    assert not hasattr(transport, "http_get") and not hasattr(transport, "forwarded_credentials")
+    assert mcp_client.DEFAULT_SCOPES.split() == ["incidents:read", "inventory:read"]
+    assert lookup_tickets.__kwdefaults__ == {"call_tool": None}  # por defecto: call_mcp_tool
+    assert lookup_inventory.__kwdefaults__ == {"call_tool": None}
 
 
 def test_tool_timeout_is_numeric_and_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent.tools import transport
 
     assert transport.tool_timeout_seconds() == 4.0
-    seen: list[Any] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.extensions["timeout"])
-        return httpx.Response(200, json=PRODUCTS)
-
-    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://servicios")
     monkeypatch.setenv("AGENT_TOOL_TIMEOUT_SECONDS", "2.5")
-    lookup_inventory(InventoryQuery(product="silla"), client=client)
-    assert seen[0]["read"] == 2.5 and seen[0]["connect"] == 2.5
+    assert transport.tool_timeout_seconds() == 2.5
+    monkeypatch.setenv("AGENT_TOOL_TIMEOUT_SECONDS", "no-es-un-numero")
+    assert transport.tool_timeout_seconds() == 4.0
 
 
 # --- Enrutador -------------------------------------------------------------------------
