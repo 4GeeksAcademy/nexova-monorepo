@@ -90,8 +90,10 @@ class RunTracer:
         error: str | None,
         route: dict[str, Any] | None = None,
         sources_used: list[str] | None = None,
+        conversation_id: str | None = None,
+        memory: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return {
+        payload = {
             "run_id": self.run_id,
             "thread_id": self.run_id,
             "question": self.question,
@@ -106,6 +108,12 @@ class RunTracer:
             "final_answer": final_answer,
             "error": error,
         }
+        if conversation_id is not None:
+            payload["conversation_id"] = conversation_id
+        if memory is not None:
+            # Ids de hechos, decisión y propuesta; el texto completo vive en la auditoría de Postgres.
+            payload["memory"] = memory
+        return payload
 
     def save(
         self,
@@ -115,6 +123,8 @@ class RunTracer:
         error: str | None,
         route: dict[str, Any] | None = None,
         sources_used: list[str] | None = None,
+        conversation_id: str | None = None,
+        memory: dict[str, Any] | None = None,
     ) -> Path:
         directory = trace_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -125,6 +135,8 @@ class RunTracer:
             error=error,
             route=route,
             sources_used=sources_used,
+            conversation_id=conversation_id,
+            memory=memory,
         )
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return path

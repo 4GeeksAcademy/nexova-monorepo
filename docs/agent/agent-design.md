@@ -295,3 +295,18 @@ Tests en `tests/incidents/`.
   - `INVALID_TRANSITION`, `VALIDATION_ERROR`, `READ_ONLY_RESOURCE` y `UPSTREAM_UNAVAILABLE`;
   - una línea de auditoría por llamada;
   - la identidad aislada por petición.
+
+## Hito 8 · Parte 1 — Memoria y auto-mejora
+
+El diseño completo (arquitectura, decisiones de diseño, política de limpieza y evidencia) está en [`memory-design.md`](memory-design.md). Resumen del cambio en el grafo:
+
+```
+START → receive_question ─┬─(vacía)→ reject → END
+                          └→ resolve_pending ─┬─(solo decidía)→ memory_ack → END
+                                              └→ load_memory → route_question → … → generate → propose_memory → END
+```
+
+- Los nodos de memoria solo existen con `build_graph(memory=AgentMemory(...))`. Sin él, la topología es exactamente la de la Parte 3, así que los evals y los traces anteriores no cambian.
+- Con memoria, `generate` es la variante estructurada (respuesta + `propuesta_memoria` en una llamada) y `no_information` cede el paso a `generate` (`next_step_with_memory`), porque una corrección del usuario puede no estar en ninguna fuente.
+- `POST /agent/query` acepta `conversation_id` opcional y devuelve `conversation_id`, `memory_proposal` y `memory_decision`. El `thread_id` del checkpointer sigue siendo el `run_id`: la propuesta pendiente vive en Postgres, no en el checkpoint.
+- Memoria activa en producción salvo `AGENT_MEMORY_ENABLED=false` o sin `DATABASE_URL`.

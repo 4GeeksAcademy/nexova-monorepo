@@ -17,7 +17,11 @@
 
 - Agente de soporte con LangGraph, Parte 1 (rama `feature/langgraph-agent-base`): el RAG corre como grafo explícito con checkpoints SQLite y trace JSON por corrida, expuesto en `POST /agent/query` (convive con `/knowledge/query`). Parte 2 (rama `feature/langgraph-external-tools`, sobre la de la Parte 1): el agente enruta solo entre RAG, tool de tickets (gestor de incidentes en vivo) y tool de inventario, con timeout de 4 s y fallback honesto.
 
+- Memoria del agente, Hito 8 · Parte 1 (rama `feature/agent-memory`, sobre `feature/mcp-oauth-tools`): el agente propone en su propia respuesta qué recordar, clasifica la decisión del usuario (aprobar, rechazar, editar o descartar por defecto) y guarda solo lo aprobado, con auditoría append-only en Supabase.
+
 ## Pasos previstos
+- Memoria del agente: abrir el PR `feature/agent-memory` con la justificación de `docs/agent/memory-design.md` y la evidencia de `docs/agent/memory-evidence.md`, una vez fusionado el PR del MCP. Opcional: programar `scripts/agent_memory_consolidate.py` en `services/scheduler/crontab`.
+- Agente/MCP: Logto rechaza las credenciales M2M del agente con HTTP 400 desde el host (las tools de tickets devuelven `error`). Lo más probable es que `AGENT_MCP_RESOURCE`/`MCP_RESOURCE_URL` sigan apuntando al túnel `trycloudflare.com` del 2026-11-14. Revisarlo en `.env` y en Logto antes de volver a grabar traces.
 - Establecer baseline del sprint actual (fecha de inicio, objetivo, fecha de corte y criterio de éxito).
 - Definir backlog inmediato del MVP con prioridades claras.
 - Implementar el flujo mínimo de pre-cribado de extremo a extremo (ingesta, análisis, scoring y salida).
@@ -55,6 +59,29 @@
   - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
 
 ## Historial de Avances
+- **[2026-11-15] Memoria y auto-mejora del agente (Hito 8 · Parte 1, rama `feature/agent-memory`, ticket #MEM-092):**
+  - **Decisiones con el usuario:** Postgres/Supabase, memoria compartida por la organización, un único store con `business_line` y solo español.
+  - **Código:** `services/api/agent/memory/`, con estos módulos:
+    - `schemas`, `policy` (candidatos, salarios, tickets puntuales, PII e instrucciones) y `store` (`MemoryStore` con `PostgresMemoryStore` e `InMemoryMemoryStore`);
+    - `generation` (una sola llamada: `respuesta` + `propuesta_memoria`; si el JSON es ilegible, recurre a `generate_answer`);
+    - `classifier` (approve, reject, edit, unrelated o ambiguous, con confianza; fallo o duda → descarte);
+    - `consolidation` y `service` (`AgentMemory`), y `nodes`.
+  - **Grafo:** nodos opcionales `resolve_pending`, `memory_ack`, `load_memory` y `propose_memory`, más `next_step_with_memory`.
+  - **API:** `POST /agent/query` con `conversation_id`, `memory_proposal` y `memory_decision`. `run_agent` recibe `conversation_id` y `user_id`.
+  - **Migración y scripts:** migración 007 con tres tablas (propuestas inmutables al decidirse, hechos sin DELETE y auditoría append-only) y RLS. Scripts `agent_memory_consolidate.py` y `agent_memory_demo.py`.
+  - **Documentación:** `docs/agent/memory-design.md`.
+  - **Arreglo durante los tests:** una corrección que solo cambia cifras (SLA de 48 h a 24 h) se tomaba por duplicado. Ahora las cifras distintas implican reemplazo (`superseded`).
+  - **Verificado:** 44 evals nuevos en `tests/pipelines/test_agent_memory_evals.py`. Suites `tests/pipelines`, `incidents`, `tasks` y `job_runner`: 200 passed, sin cambios en los evals ni traces previos. `compileall` OK e import del router OK.
+  - **No verificado:** `ruff` no está instalado, así que no se pasó linter.
+  - **Verificado en real [2026-11-15]:** Supabase con la migración 007 aplicada por el usuario (3 tablas, 5 triggers e índices); Docker con `qdrant` (15 chunks), `api` y `mcp`; modelos de 4Geeks. Ejecución de `scripts/agent_memory_demo.py`, con resultado en `docs/agent/memory-evidence.md` y traces en `tests/pipelines/fixtures/agent_memory/`:
+    - **Ciclo aprobado:** SLA de nómina retail → propuesta → "Sí, guárdalo" (approve, 0,99) → `written`. Otra persona, en otra conversación, recibe "24 horas" citando la memoria.
+    - **Ciclo rechazado:** preferencia del cliente de finanzas → propuesta → "No…" (reject, 1,0). La memoria activa no cambia y una pregunta posterior no la usa.
+    - Los 3 ejemplos del BRIEFING que no deben proponer, no proponen.
+  - **Ajustes tras la prueba real:**
+    - JSON estricto (`response_format=json_object`) y un reintento de formato (`FORMAT_RETRIES`) en la generación y en el clasificador, porque el modelo devolvía `{}` o razonamiento mezclado.
+    - Prompt: el criterio depende de lo que afirma el usuario, no de si el RAG lo respalda; no se cita una memoria inexistente ni se dice "lo tendremos en cuenta" antes de aprobar.
+    - El respaldo del clasificador solo trata el mensaje como pregunta si contiene "?".
+    - La demo expira con auditoría (`demo_reset`) los hechos de corridas anteriores de los usuarios demo.
 - **[2026-11-14] MCP Server con OAuth y migración del agente (rama `feature/mcp-oauth-tools`):**
   - **Backend.** `POST /api/incidents` y `PATCH /api/incidents/{id}/status` (`incidents_store.create_ticket`/`update_status`, `ALLOWED_TRANSITIONS`; 17 tests en `tests/incidents/`).
   - **MCP Server.** `mcps/nexova-tools/` (FastMCP + MCP Auth/Logto, Streamable HTTP stateless):

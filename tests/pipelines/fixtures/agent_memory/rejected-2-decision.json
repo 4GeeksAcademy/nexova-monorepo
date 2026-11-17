@@ -1,0 +1,72 @@
+{
+  "run_id": "487ef20d-571b-499e-9bdd-c1b85076b80a",
+  "thread_id": "487ef20d-571b-499e-9bdd-c1b85076b80a",
+  "question": "No, no hace falta que lo recuerdes.",
+  "started_at": "2026-11-15T10:41:50.297161+00:00",
+  "finished_at": "2026-11-15T10:41:56.832636+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "resolve_pending",
+    "memory_ack"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T10:41:50.300235+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "No, no hace falta que lo recuerdes.",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "resolve_pending",
+      "started_at": "2026-11-15T10:41:50.300235+00:00",
+      "duration_ms": 6513.1,
+      "output": {
+        "memory_decision": {
+          "proposal_id": "8b459227-5b48-4bf4-ae72-3ac57f295f08",
+          "outcome": "rejected",
+          "label": "reject",
+          "fact_id": null
+        },
+        "memory_notice": "Entendido, no guardaré esa propuesta en la memoria.",
+        "memory_done": true
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "memory_ack",
+      "started_at": "2026-11-15T10:41:56.815219+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "Entendido, no guardaré esa propuesta en la memoria.",
+        "memory_notice": null
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Entendido, no guardaré esa propuesta en la memoria.",
+  "error": null,
+  "conversation_id": "e8646ca0-56bb-4b6f-909f-1909122ecfbf",
+  "memory": {
+    "facts_used": [],
+    "decision": {
+      "proposal_id": "8b459227-5b48-4bf4-ae72-3ac57f295f08",
+      "outcome": "rejected",
+      "label": "reject",
+      "fact_id": null
+    },
+    "proposal": null,
+    "blocked": null
+  }
+}

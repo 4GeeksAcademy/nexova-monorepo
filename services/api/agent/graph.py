@@ -27,7 +27,7 @@ import sqlite3
 from collections import deque
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -41,6 +41,10 @@ from agent.tools.inventory import lookup_inventory
 from agent.tools.tickets import lookup_tickets
 from agent.state import AgentState
 from agent.tracing import traced
+
+if TYPE_CHECKING:
+    from agent.memory.generation import StructuredGenerateFn
+    from agent.memory.service import AgentMemory
 
 _API_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT_PATH = _API_DIR / "data" / "agent" / "checkpoints.sqlite"
@@ -63,11 +67,24 @@ def next_step(state: AgentState) -> str:
             return node
 
     tool_results = state.get("tool_results", [])
-    if state.get("context") or any(r["status"] == "ok" for r in tool_results):
+    if state.get("context") or state.get("memory_facts") or any(r["status"] == "ok" for r in tool_results):
         return nodes.GENERATE
     if tool_results:  # todas las tools fallaron o no encontraron nada, y el RAG no aportó
         return nodes.TOOL_FALLBACK
     return nodes.NO_INFORMATION
+
+
+def next_step_with_memory(state: AgentState) -> str:
+    """Como `next_step`, pero sin datos se pasa igualmente por `generate`.
+
+    Con memoria, el mensaje puede ser una corrección o una preferencia que no
+    está en ninguna fuente ("ese cliente siempre pide confirmar por email"):
+    solo la generación auto-evalúa si vale la pena proponer recordarlo. El
+    `SYSTEM_PROMPT` ya obliga a decir que no hay información si el CONTEXTO
+    está vacío, así que la respuesta sigue siendo honesta.
+    """
+    step = next_step(state)
+    return nodes.GENERATE if step == nodes.NO_INFORMATION else step
 
 
 _ANSWER_NODES = [nodes.GENERATE, nodes.TOOL_FALLBACK, nodes.NO_INFORMATION]
@@ -132,17 +149,27 @@ def build_graph(
     ticket_tool: TicketToolFn | None = None,
     inventory_tool: InventoryToolFn | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
+    memory: "AgentMemory | None" = None,
+    structured_generate_fn: "StructuredGenerateFn | None" = None,
 ) -> CompiledStateGraph:
     """Construye y compila el grafo.
 
     Por defecto usa `retrieve`/`generate_answer` del RAG, el enrutador LLM con
     reglas de respaldo y las tools HTTP reales (incidentes e inventario).
+
+    Con `memory` añade los nodos de memoria (`agent/memory/nodes.py`) y la
+    generación estructurada (`structured_generate_fn`, por defecto
+    `generate_with_memory`); sin él, la topología es la de la Parte 3.
     """
-    if retrieve_fn is None or generate_fn is None:
+    if memory is None and (retrieve_fn is None or generate_fn is None):
         from knowledge.pipeline_bridge import generate_answer, retrieve
 
         retrieve_fn = retrieve_fn or retrieve
         generate_fn = generate_fn or generate_answer
+    elif retrieve_fn is None:
+        from knowledge.pipeline_bridge import retrieve
+
+        retrieve_fn = retrieve
 
     node_fns: dict[str, Any] = {
         nodes.RECEIVE_QUESTION: nodes.receive_question,
@@ -150,38 +177,85 @@ def build_graph(
         nodes.LOOKUP_TICKETS: nodes.make_tickets_node(ticket_tool or lookup_tickets),
         nodes.LOOKUP_INVENTORY: nodes.make_inventory_node(inventory_tool or lookup_inventory),
         nodes.RETRIEVE: nodes.make_retrieve_node(retrieve_fn),
-        nodes.GENERATE: nodes.make_generate_node(generate_fn),
         nodes.TOOL_FALLBACK: nodes.tool_fallback,
         nodes.NO_INFORMATION: nodes.no_information,
         nodes.REJECT: nodes.reject,
     }
+    step_fn = next_step
+    if memory is None:
+        node_fns[nodes.GENERATE] = nodes.make_generate_node(generate_fn)
+    else:
+        from agent.memory import nodes as memory_nodes
+        from agent.memory.generation import generate_with_memory
+
+        step_fn = next_step_with_memory
+        node_fns.update({
+            memory_nodes.RESOLVE_PENDING: memory_nodes.make_resolve_pending_node(memory),
+            memory_nodes.MEMORY_ACK: memory_nodes.memory_ack,
+            memory_nodes.LOAD_MEMORY: memory_nodes.make_load_memory_node(memory),
+            nodes.GENERATE: memory_nodes.make_structured_generate_node(
+                structured_generate_fn or generate_with_memory
+            ),
+            memory_nodes.PROPOSE_MEMORY: memory_nodes.make_propose_memory_node(memory),
+        })
 
     builder = StateGraph(AgentState)
     for name, fn in node_fns.items():
         builder.add_node(name, traced(name, fn))
 
     builder.add_edge(START, nodes.RECEIVE_QUESTION)
-    builder.add_conditional_edges(
-        nodes.RECEIVE_QUESTION, route_after_receive, [nodes.ROUTE_QUESTION, nodes.REJECT]
-    )
+    if memory is None:
+        builder.add_conditional_edges(
+            nodes.RECEIVE_QUESTION, route_after_receive, [nodes.ROUTE_QUESTION, nodes.REJECT]
+        )
+    else:
+        # Primero se resuelve la propuesta pendiente; después se lee la memoria y se enruta.
+        builder.add_conditional_edges(
+            nodes.RECEIVE_QUESTION,
+            lambda s: nodes.REJECT if s.get("error") else memory_nodes.RESOLVE_PENDING,
+            [memory_nodes.RESOLVE_PENDING, nodes.REJECT],
+        )
+        builder.add_conditional_edges(
+            memory_nodes.RESOLVE_PENDING,
+            memory_nodes.route_after_resolve,
+            [memory_nodes.MEMORY_ACK, memory_nodes.LOAD_MEMORY],
+        )
+        builder.add_edge(memory_nodes.LOAD_MEMORY, nodes.ROUTE_QUESTION)
     # Cada nodo solo puede avanzar hacia fuentes posteriores o hacia la respuesta.
     builder.add_conditional_edges(
         nodes.ROUTE_QUESTION,
-        next_step,
+        step_fn,
         [nodes.LOOKUP_TICKETS, nodes.LOOKUP_INVENTORY, nodes.RETRIEVE, *_ANSWER_NODES],
     )
     builder.add_conditional_edges(
-        nodes.LOOKUP_TICKETS, next_step, [nodes.LOOKUP_INVENTORY, nodes.RETRIEVE, *_ANSWER_NODES]
+        nodes.LOOKUP_TICKETS, step_fn, [nodes.LOOKUP_INVENTORY, nodes.RETRIEVE, *_ANSWER_NODES]
     )
-    builder.add_conditional_edges(nodes.LOOKUP_INVENTORY, next_step, [nodes.RETRIEVE, *_ANSWER_NODES])
-    builder.add_conditional_edges(nodes.RETRIEVE, next_step, _ANSWER_NODES)
-    for terminal in (*_ANSWER_NODES, nodes.REJECT):
+    builder.add_conditional_edges(nodes.LOOKUP_INVENTORY, step_fn, [nodes.RETRIEVE, *_ANSWER_NODES])
+    builder.add_conditional_edges(nodes.RETRIEVE, step_fn, _ANSWER_NODES)
+    terminals = [*_ANSWER_NODES, nodes.REJECT]
+    if memory is not None:
+        terminals = [nodes.TOOL_FALLBACK, nodes.NO_INFORMATION, nodes.REJECT,
+                     memory_nodes.MEMORY_ACK, memory_nodes.PROPOSE_MEMORY]
+        builder.add_edge(nodes.GENERATE, memory_nodes.PROPOSE_MEMORY)
+    for terminal in terminals:
         builder.add_edge(terminal, END)
 
     return compile_graph(builder, checkpointer)
 
 
+def memory_enabled() -> bool:
+    """Memoria activa en producción salvo `AGENT_MEMORY_ENABLED=false` o sin `DATABASE_URL`."""
+    flag = os.environ.get("AGENT_MEMORY_ENABLED", "true").strip().lower()
+    return flag not in ("0", "false", "no", "off") and bool(os.environ.get("DATABASE_URL"))
+
+
 @lru_cache(maxsize=1)
 def get_agent_graph() -> CompiledStateGraph:
-    """Grafo de producción (RAG real + checkpoints SQLite), compilado una sola vez."""
-    return build_graph(checkpointer=sqlite_checkpointer())
+    """Grafo de producción (RAG real + checkpoints SQLite + memoria en Postgres), compilado una vez."""
+    memory = None
+    if memory_enabled():
+        from agent.memory.service import AgentMemory
+        from agent.memory.store import PostgresMemoryStore
+
+        memory = AgentMemory(PostgresMemoryStore())
+    return build_graph(checkpointer=sqlite_checkpointer(), memory=memory)

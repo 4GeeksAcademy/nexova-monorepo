@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from agent.nodes import EMPTY_QUESTION_ERROR, EMPTY_QUESTION_MESSAGE
 from agent.runner import run_agent
-from agent.schemas import AgentQueryRequest, AgentQueryResponse
+from agent.schemas import AgentQueryRequest, AgentQueryResponse, MemoryDecisionOut, MemoryProposalOut
 from models import User
 from security import get_current_user
 
@@ -33,8 +33,14 @@ def query_agent(
     # `def` síncrono: FastAPI lo ejecuta en su threadpool (Qdrant, el LLM y las tools bloquean).
     # Las tools hablan con el MCP Server con el token OAuth del agente (solo lectura);
     # el JWT de quien llama ya no sale de la API.
+    # `user_id` identifica quién aprueba cada hecho (auditoría) y quién puede
+    # decidir la propuesta pendiente de la conversación.
     try:
-        result = run_agent(payload.question)
+        result = run_agent(
+            payload.question,
+            conversation_id=payload.conversation_id,
+            user_id=current_user.id,
+        )
     except Exception:  # Cualquier nodo caído (Qdrant, LLM, checkpoint): sin detalles al cliente.
         logger.exception("Fallo en una corrida del agente")
         raise HTTPException(
@@ -53,4 +59,14 @@ def query_agent(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Agent unavailable.",
         )
-    return AgentQueryResponse(answer=result.answer, run_id=result.run_id)
+    decision = result.memory_decision
+    return AgentQueryResponse(
+        answer=result.answer,
+        run_id=result.run_id,
+        conversation_id=result.conversation_id,
+        memory_proposal=MemoryProposalOut(**result.memory_proposal) if result.memory_proposal else None,
+        memory_decision=(
+            MemoryDecisionOut(proposal_id=decision["proposal_id"], outcome=decision["outcome"])
+            if decision else None
+        ),
+    )
