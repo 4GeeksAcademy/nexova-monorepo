@@ -1,0 +1,111 @@
+{
+  "run_id": "48744ab1-d2b3-4c52-8961-863ee59bd55e",
+  "thread_id": "48744ab1-d2b3-4c52-8961-863ee59bd55e",
+  "question": "¿Qué hora es en Valencia?",
+  "started_at": "2026-11-15T22:32:08.539369+00:00",
+  "finished_at": "2026-11-15T22:32:08.712550+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "resolve_pending",
+    "small_talk",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:32:08.540912+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "¿Qué hora es en Valencia?",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:32:08.542452+00:00",
+      "duration_ms": 1.2,
+      "output": {
+        "guard": {
+          "category": "casual",
+          "action": "redirect",
+          "failure_type": "content",
+          "rule": "time_or_weather",
+          "rules": [
+            "time_or_weather"
+          ],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "resolve_pending",
+      "started_at": "2026-11-15T22:32:08.543457+00:00",
+      "duration_ms": 153.4,
+      "output": {
+        "memory_done": false
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "small_talk",
+      "started_at": "2026-11-15T22:32:08.697680+00:00",
+      "duration_ms": 5.2,
+      "output": {
+        "answer": "En Valencia son las 23:32 (hora local).\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?"
+      },
+      "error": null
+    },
+    {
+      "order": 5,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:32:08.703299+00:00",
+      "duration_ms": 0.4,
+      "output": {
+        "answer": "En Valencia son las 23:32 (hora local).\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "En Valencia son las 23:32 (hora local).\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?",
+  "error": null,
+  "conversation_id": "2de9ffab-ea4f-427e-83f2-a7201047c595",
+  "guard": {
+    "category": "casual",
+    "action": "redirect",
+    "failure_type": "content",
+    "rule": "time_or_weather",
+    "rules": [
+      "time_or_weather"
+    ],
+    "method": "rules"
+  },
+  "guardrails": [
+    {
+      "guard": "input",
+      "rule": "time_or_weather",
+      "action": "redirect",
+      "failure_type": "content",
+      "origin": "user",
+      "category": "casual",
+      "excerpt": "¿Qué hora es en Valencia?",
+      "ts": "2026-11-15T22:32:08.542452+00:00",
+      "run_id": "48744ab1-d2b3-4c52-8961-863ee59bd55e",
+      "conversation_id": "2de9ffab-ea4f-427e-83f2-a7201047c595",
+      "user_id": "demo-cliente-retailmax"
+    }
+  ]
+}

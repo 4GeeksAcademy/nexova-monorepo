@@ -1,0 +1,100 @@
+{
+  "run_id": "d5a5c889-cc1d-4f4f-91e5-73b05909f6d6",
+  "thread_id": "d5a5c889-cc1d-4f4f-91e5-73b05909f6d6",
+  "question": "Escríbeme un ensayo sobre la Revolución Francesa para mañana.",
+  "started_at": "2026-11-15T22:32:09.839240+00:00",
+  "finished_at": "2026-11-15T22:32:09.871598+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "guard_refuse",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:32:09.842327+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "Escríbeme un ensayo sobre la Revolución Francesa para mañana.",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:32:09.842327+00:00",
+      "duration_ms": 1.4,
+      "output": {
+        "guard": {
+          "category": "personal_task",
+          "action": "block",
+          "failure_type": "content",
+          "rule": "creative_or_homework",
+          "rules": [
+            "creative_or_homework"
+          ],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "guard_refuse",
+      "started_at": "2026-11-15T22:32:09.845397+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?"
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:32:09.845397+00:00",
+      "duration_ms": 0.5,
+      "output": {
+        "answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "Esa tarea queda fuera de lo que puedo hacer: soy el asistente de soporte de Nexova y solo atiendo consultas sobre tickets, incidencias, SLAs y procedimientos de soporte. ¿Te ayudo con algo de tu ticket de soporte?",
+  "error": null,
+  "conversation_id": "4df747d3-160d-4cb4-991b-5c281a9eab7b",
+  "guard": {
+    "category": "personal_task",
+    "action": "block",
+    "failure_type": "content",
+    "rule": "creative_or_homework",
+    "rules": [
+      "creative_or_homework"
+    ],
+    "method": "rules"
+  },
+  "guardrails": [
+    {
+      "guard": "input",
+      "rule": "creative_or_homework",
+      "action": "block",
+      "failure_type": "content",
+      "origin": "user",
+      "category": "personal_task",
+      "excerpt": "Escríbeme un ensayo sobre la Revolución Francesa para mañana.",
+      "ts": "2026-11-15T22:32:09.842327+00:00",
+      "run_id": "d5a5c889-cc1d-4f4f-91e5-73b05909f6d6",
+      "conversation_id": "4df747d3-160d-4cb4-991b-5c281a9eab7b",
+      "user_id": "demo-cliente-retailmax"
+    }
+  ]
+}

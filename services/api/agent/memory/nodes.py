@@ -99,12 +99,14 @@ def make_load_memory_node(memory: AgentMemory):
     return load_memory
 
 
-def make_structured_generate_node(generate_fn: StructuredGenerateFn):
+def make_structured_generate_node(generate_fn: StructuredGenerateFn, context_fn=None):
     from agent.nodes import build_generation_context
+
+    build_context = context_fn or build_generation_context
 
     def generate(state: AgentState) -> dict[str, Any]:
         """Respuesta + auto-evaluación de memoria en una sola llamada al LLM."""
-        result = generate_fn(state["question"], build_generation_context(state))
+        result = generate_fn(state["question"], build_context(state))
         candidate = result.propuesta_memoria
         return {
             "answer": result.respuesta,

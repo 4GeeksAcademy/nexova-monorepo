@@ -38,9 +38,31 @@ class MemoryDecisionOut(BaseModel):
     outcome: Literal["approved", "edited", "rejected", "discarded"]
 
 
+class GuardrailOut(BaseModel):
+    """El guard de entrada rechazó o redirigió el mensaje (sin detalles de qué regla saltó)."""
+
+    action: Literal["block", "redirect"]
+    category: Literal["injection", "cross_tenant", "personal_task", "casual"]
+
+
 class AgentQueryResponse(BaseModel):
     answer: str
     run_id: str
     conversation_id: str | None = None
     memory_proposal: MemoryProposalOut | None = None
     memory_decision: MemoryDecisionOut | None = None
+    guardrail: GuardrailOut | None = None
+
+
+class GuardrailSummary(BaseModel):
+    """Cuántas veces se activó cada guardrail (`GET /agent/guardrails/summary`)."""
+
+    total: int
+    runs_affected: int
+    by_failure_type: dict[str, int]
+    by_guard: dict[str, int]
+    by_action: dict[str, int]
+    by_rule: dict[str, int]
+    since: str | None = None
+    until: str | None = None
+    conversation_id: str | None = None

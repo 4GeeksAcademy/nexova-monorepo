@@ -112,18 +112,28 @@ def generate_with_memory(
     context: list[dict[str, Any]],
     *,
     llm: Any | None = None,
+    system_prompt: str | None = None,
+    build_messages: Callable[..., list[dict[str, str]]] | None = None,
+    fallback: Callable[..., str] | None = None,
 ) -> StructuredAnswer:
+    """Por defecto usa el prompt y el formato del RAG. Con guardrails
+    (`agent.guardrails.generation.secure_structured_generate`) recibe el prompt
+    de soporte, el contexto aislado en `<datos_externos>` y un respaldo seguro."""
     from knowledge.pipeline_bridge import generate_answer, generation_model, get_llm_client
     from rag import SYSTEM_PROMPT, _format_context  # mismo prompt y formato que el RAG
 
     client = llm or get_llm_client()
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + MEMORY_INSTRUCTIONS},
-        {
-            "role": "user",
-            "content": f"CONTEXTO:\n{_format_context(context)}\n\nÚLTIMO MENSAJE DEL USUARIO:\n{question}",
-        },
-    ]
+    instructions = (system_prompt or SYSTEM_PROMPT) + MEMORY_INSTRUCTIONS
+    if build_messages is not None:
+        messages = build_messages(question, context, system_prompt=instructions)
+    else:
+        messages = [
+            {"role": "system", "content": instructions},
+            {
+                "role": "user",
+                "content": f"CONTEXTO:\n{_format_context(context)}\n\nÚLTIMO MENSAJE DEL USUARIO:\n{question}",
+            },
+        ]
     # Un reintento solo si el FORMATO falla: es la misma llamada repetida, no una segunda evaluación.
     for attempt in range(1 + FORMAT_RETRIES):
         completion = create_json_completion(
@@ -136,5 +146,10 @@ def generate_with_memory(
             logger.warning(
                 "Salida estructurada ilegible (%s, intento %d): %r", type(exc).__name__, attempt + 1, raw[:200]
             )
+            from agent.guardrails import events
+
+            events.emit("generation", "unreadable_structured_output",
+                        "retry" if attempt < FORMAT_RETRIES else "fallback", "structural", origin="model")
     logger.warning("Sin salida estructurada legible; respuesta sin propuesta")
-    return StructuredAnswer(respuesta=generate_answer(question, context, llm=client))
+    plain = fallback or generate_answer
+    return StructuredAnswer(respuesta=plain(question, context, llm=client))

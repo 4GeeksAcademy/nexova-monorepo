@@ -92,6 +92,8 @@ class RunTracer:
         sources_used: list[str] | None = None,
         conversation_id: str | None = None,
         memory: dict[str, Any] | None = None,
+        guardrails: list[dict[str, Any]] | None = None,
+        guard: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = {
             "run_id": self.run_id,
@@ -113,6 +115,12 @@ class RunTracer:
         if memory is not None:
             # Ids de hechos, decisión y propuesta; el texto completo vive en la auditoría de Postgres.
             payload["memory"] = memory
+        if guard is not None:
+            # Veredicto del guard de entrada (categoría, acción, tipo de fallo, regla).
+            payload["guard"] = guard
+        if guardrails is not None:
+            # Eventos de los guardrails de la corrida (también en el JSONL de `agent.guardrails.events`).
+            payload["guardrails"] = guardrails
         return payload
 
     def save(
@@ -125,6 +133,8 @@ class RunTracer:
         sources_used: list[str] | None = None,
         conversation_id: str | None = None,
         memory: dict[str, Any] | None = None,
+        guardrails: list[dict[str, Any]] | None = None,
+        guard: dict[str, Any] | None = None,
     ) -> Path:
         directory = trace_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -137,6 +147,8 @@ class RunTracer:
             sources_used=sources_used,
             conversation_id=conversation_id,
             memory=memory,
+            guardrails=guardrails,
+            guard=guard,
         )
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return path

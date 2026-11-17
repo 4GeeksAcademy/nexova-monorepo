@@ -15,7 +15,9 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-ToolStatus = Literal["ok", "not_found", "timeout", "error"]
+# `forbidden`: la consulta no se hizo porque quien pregunta no tiene acceso
+# (tenancy, `agent/guardrails/tenancy.py`).
+ToolStatus = Literal["ok", "not_found", "timeout", "error", "forbidden"]
 
 DEFAULT_TIMEOUT_SECONDS = 4.0
 

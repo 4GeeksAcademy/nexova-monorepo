@@ -1,0 +1,111 @@
+{
+  "run_id": "82f48f2c-9601-4bd7-a306-41e5fa65a9d8",
+  "thread_id": "82f48f2c-9601-4bd7-a306-41e5fa65a9d8",
+  "question": "Hola, ¿cómo estás?",
+  "started_at": "2026-11-15T22:32:05.976768+00:00",
+  "finished_at": "2026-11-15T22:32:08.530416+00:00",
+  "status": "completed",
+  "route": null,
+  "sources_used": [],
+  "nodes": [
+    "receive_question",
+    "guard_input",
+    "resolve_pending",
+    "small_talk",
+    "guard_output"
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "node": "receive_question",
+      "started_at": "2026-11-15T22:32:05.978303+00:00",
+      "duration_ms": 0.0,
+      "output": {
+        "question": "Hola, ¿cómo estás?",
+        "error": null,
+        "sources_used": [],
+        "tool_results": []
+      },
+      "error": null
+    },
+    {
+      "order": 2,
+      "node": "guard_input",
+      "started_at": "2026-11-15T22:32:05.979835+00:00",
+      "duration_ms": 1.8,
+      "output": {
+        "guard": {
+          "category": "casual",
+          "action": "redirect",
+          "failure_type": "content",
+          "rule": "greeting",
+          "rules": [
+            "greeting"
+          ],
+          "method": "rules"
+        }
+      },
+      "error": null
+    },
+    {
+      "order": 3,
+      "node": "resolve_pending",
+      "started_at": "2026-11-15T22:32:05.983977+00:00",
+      "duration_ms": 150.8,
+      "output": {
+        "memory_done": false
+      },
+      "error": null
+    },
+    {
+      "order": 4,
+      "node": "small_talk",
+      "started_at": "2026-11-15T22:32:06.135094+00:00",
+      "duration_ms": 2375.7,
+      "output": {
+        "answer": "¡Hola! Estoy muy bien, gracias por preguntar. ¡Qué gusto verte por aquí!\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?"
+      },
+      "error": null
+    },
+    {
+      "order": 5,
+      "node": "guard_output",
+      "started_at": "2026-11-15T22:32:08.510534+00:00",
+      "duration_ms": 0.5,
+      "output": {
+        "answer": "¡Hola! Estoy muy bien, gracias por preguntar. ¡Qué gusto verte por aquí!\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?",
+        "output_blocked": false,
+        "output_rules": []
+      },
+      "error": null
+    }
+  ],
+  "final_answer": "¡Hola! Estoy muy bien, gracias por preguntar. ¡Qué gusto verte por aquí!\n\nPor cierto, ¿en qué puedo ayudarte con tu ticket de soporte hoy?",
+  "error": null,
+  "conversation_id": "fdf948f4-54e7-4fe1-b29b-2bb6def1d1cd",
+  "guard": {
+    "category": "casual",
+    "action": "redirect",
+    "failure_type": "content",
+    "rule": "greeting",
+    "rules": [
+      "greeting"
+    ],
+    "method": "rules"
+  },
+  "guardrails": [
+    {
+      "guard": "input",
+      "rule": "greeting",
+      "action": "redirect",
+      "failure_type": "content",
+      "origin": "user",
+      "category": "casual",
+      "excerpt": "Hola, ¿cómo estás?",
+      "ts": "2026-11-15T22:32:05.979835+00:00",
+      "run_id": "82f48f2c-9601-4bd7-a306-41e5fa65a9d8",
+      "conversation_id": "fdf948f4-54e7-4fe1-b29b-2bb6def1d1cd",
+      "user_id": "demo-cliente-retailmax"
+    }
+  ]
+}

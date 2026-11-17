@@ -19,7 +19,10 @@
 
 - Memoria del agente, Hito 8 · Parte 1 (rama `feature/agent-memory`, sobre `feature/mcp-oauth-tools`): el agente propone en su propia respuesta qué recordar, clasifica la decisión del usuario (aprobar, rechazar, editar o descartar por defecto) y guarda solo lo aprobado, con auditoría append-only en Supabase.
 
+- Harness y guardrails del agente, Hito 8 · Parte 2 (rama `feature/agent-guardrails`, sobre `feature/agent-memory`, ticket #SEC-114): capas independientes de entrada, alcance, aislamiento de contenido externo, tenancy, salida y observabilidad alrededor del mismo agente, ahora identificado como el de soporte de primera línea del BRIEFING.
+
 ## Pasos previstos
+- Guardrails del agente: abrir el PR `feature/agent-guardrails` (después de los de MCP y memoria) con los casos de `docs/agent/guardrails-design.md` y la evidencia de `docs/agent/guardrails-evidence.md`. Asignar `client_company` a los usuarios externos reales en los datos de usuario: hoy ninguno la tiene, así que un usuario con rol `user` no ve tickets.
 - Memoria del agente: abrir el PR `feature/agent-memory` con la justificación de `docs/agent/memory-design.md` y la evidencia de `docs/agent/memory-evidence.md`, una vez fusionado el PR del MCP. Opcional: programar `scripts/agent_memory_consolidate.py` en `services/scheduler/crontab`.
 - Agente/MCP: Logto rechaza las credenciales M2M del agente con HTTP 400 desde el host (las tools de tickets devuelven `error`). Lo más probable es que `AGENT_MCP_RESOURCE`/`MCP_RESOURCE_URL` sigan apuntando al túnel `trycloudflare.com` del 2026-11-14. Revisarlo en `.env` y en Logto antes de volver a grabar traces.
 - Establecer baseline del sprint actual (fecha de inicio, objetivo, fecha de corte y criterio de éxito).
@@ -59,6 +62,21 @@
   - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
 
 ## Historial de Avances
+- **[2026-11-15] Harness y guardrails del agente (Hito 8 · Parte 2, rama `feature/agent-guardrails`, ticket #SEC-114):**
+  - **Decisiones con el usuario:** tenancy con `User.client_company`, detección con reglas + LLM acotado, y registro en JSONL + trace con resumen por endpoint y script.
+  - **Código:** `services/api/agent/guardrails/`, con estos módulos:
+    - `prompt` y `generation`: prompt de soporte seguro y separación de roles;
+    - `normalize` e `input_guard`: familias de inyección, tareas personales, casual y cruce de cuentas;
+    - `scope_classifier`, `isolation`, `tenancy`, `output_guard`, `events` y `nodes`.
+  - **Grafo:** `build_graph(guardrails=...)` con `guard_input`, `guard_refuse`, `small_talk` y `guard_output`. Las propuestas de memoria se registran después de validar la salida.
+  - **Integración:** tenancy forzada en `lookup_tickets` (`agent/nodes.py`) y el documento de tarifas excluido para usuarios externos. `generate_with_memory` acepta prompt, formato y respaldo inyectados.
+  - **API y scripts:** `GET /agent/guardrails/summary` y `scripts/agent_guardrails_{report,demo}.py`.
+  - **Verificado:**
+    - 124 tests deterministas nuevos (`tests/pipelines/test_agent_guardrails.py`) y suites completas en 324 passed, sin cambios en evals ni traces previos.
+    - Prueba de mutación: con el detector de inyección desactivado fallan 52 tests.
+    - Demo viva (`docs/agent/guardrails-evidence.md`): los 4 casos del BRIEFING y las reformulaciones se rechazan; el RAG envenenado no se obedece; un usuario de RetailMax solo ve sus 3 tickets. Hubo 17 activaciones (9 de seguridad y 8 de contenido).
+  - **Para correr scripts desde el host:** sobrescribir `QDRANT_URL` y `AGENT_MCP_URL` con `localhost`, porque `.env` usa los nombres de Docker `qdrant` y `mcp`, y definir `AGENT_MCP_RESOURCE` = `MCP_RESOURCE_URL`.
+  - **No verificado:** `ruff` no está instalado, así que no se pasó linter.
 - **[2026-11-15] Memoria y auto-mejora del agente (Hito 8 · Parte 1, rama `feature/agent-memory`, ticket #MEM-092):**
   - **Decisiones con el usuario:** Postgres/Supabase, memoria compartida por la organización, un único store con `business_line` y solo español.
   - **Código:** `services/api/agent/memory/`, con estos módulos:
