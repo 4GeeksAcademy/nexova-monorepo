@@ -7,6 +7,8 @@ const STYLES: Partial<Record<TicketStatus, string>> = {
   generando_borrador: "border-sky-300 bg-sky-50 text-sky-800",
   "en_evaluación": "border-sky-300 bg-sky-50 text-sky-800",
   needs_human_review: "border-amber-400 bg-amber-100 text-amber-900",
+  "esperando_aprobación": "border-amber-400 bg-amber-50 text-amber-900",
+  terminado: "border-teal-600 bg-teal-600 text-white",
 };
 
 interface TicketStatusBadgeProps {

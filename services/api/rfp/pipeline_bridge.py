@@ -31,6 +31,20 @@ from rfp_intake import (  # noqa: E402
 )
 from rfp_intake.intake import MAX_PDF_BYTES  # noqa: E402
 from rfp_drafting import HandoffNotReady, run_drafting, validate_handoff  # noqa: E402
+from rfp_approval import (  # noqa: E402
+    ApprovalDecision,
+    ApprovalNotPending,
+    ApprovalNotReady,
+    InvalidDecision,
+    active_departments,
+    max_approval_rounds,
+    open_checkpointer,
+    pending_interrupt,
+    resume_approval,
+    start_approval,
+    validate_approval_handoff,
+    validate_decision,
+)
 
 
 @lru_cache(maxsize=1)
@@ -38,7 +52,33 @@ def get_store() -> SqlRfpStore:
     return SqlRfpStore()
 
 
+def run_start_approval(ticket_id: str, department_id: str, store) -> dict:
+    with open_checkpointer() as checkpointer:
+        return start_approval(ticket_id, department_id, store=store, checkpointer=checkpointer)
+
+
+def run_resume_approval(ticket_id: str, department_id: str, decision: dict | None, store) -> dict:
+    with open_checkpointer() as checkpointer:
+        return resume_approval(ticket_id, department_id, decision, store=store, checkpointer=checkpointer)
+
+
+def run_branch_paused(ticket_id: str, department_id: str, store) -> bool:
+    with open_checkpointer() as checkpointer:
+        return pending_interrupt(ticket_id, department_id, store=store, checkpointer=checkpointer) is not None
+
+
 __all__ = [
+    "ApprovalDecision",
+    "ApprovalNotPending",
+    "ApprovalNotReady",
+    "InvalidDecision",
+    "active_departments",
+    "max_approval_rounds",
+    "run_branch_paused",
+    "run_resume_approval",
+    "run_start_approval",
+    "validate_approval_handoff",
+    "validate_decision",
     "MAX_PDF_BYTES",
     "HandoffNotReady",
     "run_drafting",

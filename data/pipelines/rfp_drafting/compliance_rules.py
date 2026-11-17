@@ -157,6 +157,40 @@ def check_sla(draft: str, ctx: ComplianceContext) -> list[Violation]:
                               "'SLA de respuesta de 24 horas').")]
 
 
+def detect_currencies(draft: str) -> list[str]:
+    """Monedas que aparecen en un borrador (`EUR`/`USD`). Lo usa el arbitraje de la Parte 3."""
+    found = []
+    if _EUR_MARKERS.search(draft or ""):
+        found.append("EUR")
+    if _USD_MARKERS.search(draft or ""):
+        found.append("USD")
+    return found
+
+
+def time_to_close_business_days(draft: str) -> list[float]:
+    """Plazos de cierre comprometidos en el borrador, en días hábiles (frases con contexto de cierre)."""
+    days: list[float] = []
+    for sentence in _sentences(draft or ""):
+        if not _CLOSE_CONTEXT.search(sentence):
+            continue
+        for match in _DURATION.finditer(sentence):
+            for group in ("low", "high"):
+                if match.group(group):
+                    days.append(_business_days(int(match.group(group)), match.group("unit")))
+    return days
+
+
+def business_days(value: int, unit: str) -> float:
+    return _business_days(value, unit)
+
+
+DURATION_PATTERN = _DURATION
+
+
+def sentences(text: str) -> list[str]:
+    return _sentences(text)
+
+
 def _client_patterns(name: str) -> list[str]:
     words = [w for w in re.findall(r"[a-z0-9]+", _plain(name))]
     full = " ".join(words)

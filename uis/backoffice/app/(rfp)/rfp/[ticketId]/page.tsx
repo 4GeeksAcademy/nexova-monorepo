@@ -3,13 +3,19 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import ApprovalPanel from "@/components/rfp/ApprovalPanel";
 import DraftCard from "@/components/rfp/DraftCard";
+import FinalDocumentView from "@/components/rfp/FinalDocumentView";
 import TicketStatusBadge from "@/components/rfp/TicketStatusBadge";
+import TraceTimeline from "@/components/rfp/TraceTimeline";
 import {
   DEPARTMENTS,
   RfpError,
+  TRIGGER_LABELS,
   fetchRfpTicket,
+  isApprovalBusy,
   isTicketBusy,
+  openApprovals,
   regenerateDrafts,
   type RfpTicketDetail,
 } from "@/lib/rfp";
@@ -65,6 +71,22 @@ export default function RfpTicketPage() {
   // ticket en marcha se sigue consultando (como mucho START_GRACE_MS).
   const awaitingStartUntil = useRef(0);
 
+  /** Tras una decisión o reapertura: el worker reanuda la rama en segundo plano; se sigue consultando. */
+  const handleApprovalChanged = () => {
+    awaitingStartUntil.current = Date.now() + START_GRACE_MS;
+    setRefreshKey((key) => key + 1);
+  };
+
+  const handleOpenApprovals = async () => {
+    setActionError(null);
+    try {
+      await openApprovals(ticketId);
+      handleApprovalChanged();
+    } catch (err) {
+      setActionError(err instanceof RfpError ? err.message : "No se pudo conectar con la API.");
+    }
+  };
+
   const handleRegenerate = async () => {
     setRegenerating(true);
     setActionError(null);
@@ -92,7 +114,7 @@ export default function RfpTicketPage() {
             return;
           }
           setState({ status: "ok", ticket });
-          const busy = isTicketBusy(ticket);
+          const busy = isTicketBusy(ticket) || isApprovalBusy(ticket);
           if (busy) awaitingStartUntil.current = 0;
           if (busy || Date.now() < awaitingStartUntil.current) timer = setTimeout(load, POLL_MS);
         })
@@ -132,6 +154,9 @@ export default function RfpTicketPage() {
   const { ticket } = state;
   const metadata = ticket.metadata;
   const readability = metadata?.readability;
+  const inApproval = ticket.sections.filter((s) => s.approval.status !== null);
+  const approvedCount = inApproval.filter((s) => s.approval.status === "aprobada").length;
+  const done = ticket.status === "terminado";
 
   return (
     <div className="space-y-10">
@@ -140,7 +165,11 @@ export default function RfpTicketPage() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-3xl font-medium tracking-tight text-stone-900">{ticket.ticket_id}</h1>
           <TicketStatusBadge status={ticket.status} readyForApproval={ticket.ready_for_approval} />
-          {ticket.ready_for_approval ? (
+          {inApproval.length > 0 ? (
+            <span className="rounded-full border border-stone-300 px-2.5 py-0.5 font-mono text-xs text-stone-600">
+              {approvedCount} de {inApproval.length} secciones aprobadas
+            </span>
+          ) : ticket.ready_for_approval ? (
             <span className="rounded-full border border-stone-300 px-2.5 py-0.5 font-mono text-xs text-stone-600">
               Listo para aprobación (Parte 3)
             </span>
@@ -173,6 +202,35 @@ export default function RfpTicketPage() {
         </p>
       )}
 
+      {ticket.final_document && <FinalDocumentView ticketId={ticket.ticket_id} document={ticket.final_document} />}
+
+      {ticket.status === "esperando_aprobación" && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Cada responsable aprueba su sección por separado: aprobar una no espera a las demás. El documento final se
+          genera solo cuando todas las secciones estén aprobadas.
+        </p>
+      )}
+
+      {ticket.arbitrations.length > 0 && (
+        <section className="rounded-xl border border-amber-300 bg-amber-50/60 p-6">
+          <h2 className="text-lg font-medium text-amber-950">Arbitraje de conflictos entre departamentos</h2>
+          <p className="text-sm text-amber-900">
+            Detectados en datos estructurados y resueltos por regla con el árbitro fijo del BRIEFING (sin LLM).
+          </p>
+          <ul className="mt-3 space-y-2 text-sm text-amber-950">
+            {ticket.arbitrations.map((a) => (
+              <li key={`${a.department_id}-${a.trigger_id}-${a.approval_round}`}>
+                <span className="font-mono text-xs">[{a.trigger_id}]</span>{" "}
+                <span className="font-medium">{TRIGGER_LABELS[a.trigger_id] ?? a.trigger_id}</span> ·{" "}
+                {DEPARTMENTS[a.department_id].name} · ronda {a.approval_round} · árbitro {a.arbiter} →{" "}
+                <span className="font-mono text-xs">{a.action}</span>
+                {a.message && <p className="text-xs text-amber-800">{a.message}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {ticket.ready_for_drafting && (
         <section>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -182,14 +240,25 @@ export default function RfpTicketPage() {
                 Un generador por departamento; legibilidad, pertinencia y cumplimiento evaluados en paralelo.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleRegenerate}
-              disabled={regenerating || isTicketBusy(ticket)}
-              className="rounded-lg border border-teal-600 px-4 py-2 text-sm font-medium text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
-            >
-              {regenerating ? "Encolando…" : "Regenerar borradores"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {ticket.ready_for_approval && inApproval.length === 0 && !done && (
+                <button
+                  type="button"
+                  onClick={handleOpenApprovals}
+                  className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
+                >
+                  Abrir aprobaciones
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={regenerating || isTicketBusy(ticket) || done}
+                className="rounded-lg border border-teal-600 px-4 py-2 text-sm font-medium text-teal-700 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+              >
+                {regenerating ? "Encolando…" : "Regenerar borradores"}
+              </button>
+            </div>
           </div>
           {actionError && (
             <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{actionError}</p>
@@ -201,7 +270,16 @@ export default function RfpTicketPage() {
                   key={section.department_id}
                   section={section}
                   maxIterations={maxIterations(ticket)}
-                />
+                >
+                  {section.approval.status && (
+                    <ApprovalPanel
+                      ticketId={ticket.ticket_id}
+                      section={section}
+                      maxRounds={ticket.max_approval_rounds}
+                      onChanged={handleApprovalChanged}
+                    />
+                  )}
+                </DraftCard>
               ))}
             </div>
           ) : (
@@ -329,6 +407,8 @@ export default function RfpTicketPage() {
           </div>
         </section>
       )}
+
+      <TraceTimeline ticketId={ticket.ticket_id} />
     </div>
   );
 }

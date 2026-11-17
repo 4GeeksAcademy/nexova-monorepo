@@ -77,16 +77,37 @@ SECTION_STATUSES: tuple[str, ...] = (
     SECTION_PASSED,
     SECTION_NEEDS_HUMAN_REVIEW,
 )
+# Parte 3 (aprobación humana y cierre).
+STATUS_AWAITING_APPROVAL = "esperando_aprobación"
+STATUS_DONE = "terminado"
+
 TICKET_STATUSES: tuple[str, ...] = (
     STATUS_ANALYZING,
     STATUS_DISCARDED,
     STATUS_ANALYSIS_COMPLETE,
-    "generando_borrador",
-    "en_evaluación",
-    "needs_human_review",
-    "esperando_aprobación",
-    "terminado",
+    STATUS_GENERATING,
+    STATUS_EVALUATING,
+    STATUS_NEEDS_HUMAN_REVIEW,
+    STATUS_AWAITING_APPROVAL,
+    STATUS_DONE,
 )
+
+# Estado de la aprobación humana de cada sección (Parte 3).
+APPROVAL_PENDING = "pendiente"          # interrumpida: esperando al responsable (o al árbitro)
+APPROVAL_PROCESSING = "procesando"      # decisión recibida, el worker reanuda la rama
+APPROVAL_APPROVED = "aprobada"
+APPROVAL_CHANGES_REQUESTED = "cambios_solicitados"  # vuelve a su generador con el comentario
+APPROVAL_REJECTED = "rechazada"         # cerrada: requiere reabrir la aprobación
+APPROVAL_STATUSES: tuple[str, ...] = (
+    APPROVAL_PENDING,
+    APPROVAL_PROCESSING,
+    APPROVAL_APPROVED,
+    APPROVAL_CHANGES_REQUESTED,
+    APPROVAL_REJECTED,
+)
+
+# Árbitro fijo de los conflictos entre departamentos (BRIEFING §7). No es un LLM.
+SALES_DIRECTOR = "Marcos Ibáñez"
 
 # Sede del cliente → moneda de la propuesta (BRIEFING §5).
 HQ_SPAIN = "España"

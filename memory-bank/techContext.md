@@ -68,6 +68,14 @@
   - **Evaluación:** legibilidad y cumplimiento deterministas; pertinencia con juez LLM que justifica cada aspecto con una cita. Las reglas del BRIEFING §5 viven en `compliance_rules.py` con `rule_id` estables y el `feedback_for_generator` lo construye el código.
   - **Límite:** `RFP_MAX_ITERATIONS` (3); al agotarlo la sección queda `needs_human_review` con su último borrador y evaluación. Con todo aprobado el ticket queda en `en_evaluación` + `ready_for_approval` (no se usan estados de la Parte 3).
   - **Columnas nuevas fuera de `create_all()`:** la migración 009 añade columnas a tablas existentes y hay que aplicarla a mano antes de desplegar.
+- Aprobación humana y cierre de RFPs (Hito 9 · Parte 3, ver `docs/rfp/rfp-approval-design.md`):
+  - **Un grafo por departamento** (`data/pipelines/rfp_approval/`), cada uno en su hilo del checkpointer `rfp-{ticket_id}:{department_id}`: la pausa (`interrupt` en `human_approval`) solo detiene esa rama. `resume_approval` es el punto de entrada explícito (`Command(resume=...)`), valida la decisión antes de reanudar y, si la rama cayó a medias, continúa desde el último checkpoint.
+  - **Checkpointer Postgres** (`langgraph-checkpoint-postgres` + psycopg v3, solo para checkpoints; SQLAlchemy sigue con psycopg2) sobre `DATABASE_URL`, porque API y worker son procesos distintos. `RFP_CHECKPOINTER=sqlite|memory` para desarrollo y tests. Las tablas `checkpoint*` las crea `PostgresSaver.setup()`.
+  - **Arbitraje sin LLM:** `arbitration.py` detecta los triggers del BRIEFING §7 sobre datos estructurados (sede → moneda, monedas por borrador, TTC en días hábiles, inicio de la formación, regla `sla-24h`) y aplica una tabla fija trigger → árbitro (Marcos Ibáñez / Roberto Díaz) → acción (`request_changes`, y al límite `reject` o escalar a Marcos).
+  - **Límite:** `RFP_MAX_APPROVAL_ROUNDS` (2) rondas de cambios por sección; agotado, la pausa solo admite aprobar o rechazar.
+  - **Aprobador:** cualquier usuario interno decide "como" el responsable nombrado (o el árbitro si se escaló); se guardan `approver` y `decided_by_user`.
+  - **Trazabilidad:** `rfp_intake/trace.py` envuelve los nodos de las Partes 1–3 y escribe agente, input/output resumidos y timestamps en `rfp_trace_event` (y en `state["trace"]` en la Parte 3).
+  - **Documento final** determinista (`final_document.py`) en `rfp_final_document`; lo genera la última rama en aprobar y el ticket pasa a `terminado`. Migración 010 (a mano en Supabase).
 - Autenticación de la API: esquema `HTTPBearer` (`security.bearer_scheme` + `get_bearer_token`) en lugar de `OAuth2PasswordBearer`, para que Swagger (`/docs` → Authorize) acepte pegar el `access_token` de `POST /auth/login` (que recibe JSON, no form-data). Sin cabecera o con token inválido sigue respondiendo 401 + `WWW-Authenticate: Bearer`; el backoffice no cambia.
 
 ## Restricciones técnicas
