@@ -90,4 +90,10 @@
   - **Recuperación.** `Last-Event-ID` con replay corto + deduplicación por `ticket_id` en el cliente. Keep-alive de 15 s; el cliente reabre si pasan 45 s sin bytes.
   - **Cliente.** `fetch` + `ReadableStream` con `Authorization: Bearer` (nunca `EventSource`), proxy Next sin `.text()` (`app/api/rfp/events/route.ts`) y backoff 1–30 s con jitter. La ruta `/rfp/events` está excluida de la telemetría `api_request_*`.
   - **Tests del frontend.** `vitest` (devDependency solo de `uis/backoffice`, `npm test`) para el parser SSE, el backoff y la reconexión con red simulada.
+- Chat en vivo por WebSocket (Hito 10 · Parte 2, ver `docs/chat/chat-ws-design.md`):
+  - **Streaming sin tocar el agente.** `agent/streaming.py` reutiliza `build_graph()` inyectando `generate_fn`/`structured_generate_fn` que pasan un `StreamingLLM` (mismo SDK `openai`, `stream=True`) a las funciones de generación existentes; los fragmentos salen por `get_stream_writer()` y `stream_agent` recorre el grafo con `stream_mode=["custom", "values"]`. En JSON estructurado solo se emite el campo `respuesta` (`RespuestaFieldExtractor`).
+  - **Abort.** Cancelación cooperativa con un `threading.Event` por turno: se cierra el stream HTTP del modelo y se lanza `GenerationAborted`; nunca `interrupt()` de LangGraph. Trace con `status = "interrupted"`.
+  - **Identidad.** `session_id` (UUID) = `conversation_id` del agente. Historial del canal en SQLite (`data/agent/chat_sessions.sqlite`, `CHAT_DB_PATH`); el estado del agente sigue sin historial.
+  - **Pub/sub.** `ChatHub` en memoria, una cola acotada por conexión, válido para un solo proceso de uvicorn; con varios workers haría falta Redis pub/sub detrás del protocolo `Hub`.
+  - **Cliente.** El navegador se conecta directo a la API (`NEXT_PUBLIC_CHAT_WS_URL` o `ws(s)://<host>:8000`); solo `POST /api/chat/sessions` pasa por proxy. Cierres `4401`/`4403`/`4404`/`4408`.
 

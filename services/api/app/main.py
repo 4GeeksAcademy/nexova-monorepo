@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent import router as agent
 from agent.graph import get_agent_graph
 from app.routers import incidents
+from chat import router as chat
 from database import create_db_and_tables
 from knowledge import router as knowledge
 from models import HealthResponse
@@ -217,6 +218,7 @@ app.include_router(reporting.router)
 app.include_router(rfp.router)
 app.include_router(knowledge.router)
 app.include_router(agent.router)
+app.include_router(chat.router)
 app.include_router(tasks.router)
 
 
