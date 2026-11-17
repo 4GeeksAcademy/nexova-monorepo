@@ -6,6 +6,10 @@ persistencia y el guardado del PDF viven en `data/pipelines/rfp_intake/`.
   `analizando`, encola `rfp.run_intake` en Celery y responde 202 sin esperar.
 - `GET /rfp/tickets`: tickets recientes (la UI hace poll mientras haya alguno
   en `analizando`).
+- `POST /rfp/tickets/{ticket_id}/drafts`: (re)lanza la Parte 2 (borradores +
+  evaluación) sobre el handoff de la Parte 1; 202, o 409 si no hay handoff o
+  ya hay una generación en curso. La Parte 2 también arranca sola al terminar
+  la Parte 1 (`tasks/rfp.py`).
 - `GET /rfp/tickets/{ticket_id}`: detalle con metadatos, secciones por
   departamento, resumen para Ventas y payload de handoff.
 
@@ -21,9 +25,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import User
 from rfp import pipeline_bridge
-from rfp.schemas import RfpTicketAccepted, RfpTicketDetail, RfpTicketSummary
+from rfp.schemas import RfpDraftingAccepted, RfpTicketAccepted, RfpTicketDetail, RfpTicketSummary
 from security import get_current_user
-from tasks.rfp import run_rfp_intake
+from tasks.rfp import generate_rfp_responses, run_rfp_intake
 
 logger = logging.getLogger("rfp")
 
@@ -78,6 +82,41 @@ def upload_rfp(
 
     logger.info("ticket=%s encolado task_id=%s por %s", ticket["ticket_id"], task.id, current_user.email)
     return RfpTicketAccepted(ticket_id=ticket["ticket_id"], status=ticket["status"], task_id=task.id)
+
+
+_DRAFTING_IN_PROGRESS = ("generando_borrador", "en_evaluación")
+
+
+@router.post(
+    "/tickets/{ticket_id}/drafts",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=RfpDraftingAccepted,
+    summary="(Re)genera y evalúa los borradores por departamento (Parte 2)",
+)
+def regenerate_drafts(ticket_id: str, _: User = Depends(require_internal_user)) -> RfpDraftingAccepted:
+    store = pipeline_bridge.get_store()
+    try:
+        ticket = store.get_ticket(ticket_id)
+    except SQLAlchemyError as exc:
+        logger.exception("No se pudo leer el ticket %s", ticket_id)
+        raise _storage_unavailable() from exc
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket de RFP no encontrado.")
+    try:
+        pipeline_bridge.validate_handoff(ticket)
+    except pipeline_bridge.HandoffNotReady as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    in_progress = ticket["status"] in _DRAFTING_IN_PROGRESS and not ticket["ready_for_approval"]
+    if in_progress and not ticket.get("error_message"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="La generación de borradores ya está en curso para este ticket.")
+    try:
+        task = generate_rfp_responses.apply_async(kwargs={"ticket_id": ticket_id})
+    except Exception as exc:
+        logger.exception("No se pudo encolar la generación del ticket %s", ticket_id)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="La cola de tareas no está disponible.") from exc
+    return RfpDraftingAccepted(ticket_id=ticket_id, status=ticket["status"], task_id=task.id)
 
 
 @router.get("/tickets", response_model=list[RfpTicketSummary], summary="Tickets de RFP recientes")

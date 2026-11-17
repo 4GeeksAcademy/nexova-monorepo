@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PdfUploader from "@/components/rfp/PdfUploader";
 import TicketStatusBadge from "@/components/rfp/TicketStatusBadge";
-import { DEPARTMENTS, RfpError, fetchRfpTickets, uploadRfp, type RfpTicketSummary } from "@/lib/rfp";
+import { DEPARTMENTS, RfpError, fetchRfpTickets, isTicketBusy, uploadRfp, type RfpTicketSummary } from "@/lib/rfp";
 
 /**
  * Bandeja de RFPs (modo ticket). Cada PDF subido crea un ticket; el análisis
@@ -41,7 +41,7 @@ export default function RfpInboxPage() {
           if (cancelled) return;
           setTickets(list);
           setLoadError(null);
-          if (list.some((t) => t.status === "analizando")) timer = setTimeout(load, POLL_MS);
+          if (list.some(isTicketBusy)) timer = setTimeout(load, POLL_MS);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
@@ -139,7 +139,7 @@ export default function RfpInboxPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <TicketStatusBadge status={ticket.status} />
+                      <TicketStatusBadge status={ticket.status} readyForApproval={ticket.ready_for_approval} />
                       {ticket.error_message && (
                         <p className="mt-1 max-w-xs text-xs text-red-700">{ticket.error_message}</p>
                       )}

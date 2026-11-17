@@ -114,6 +114,8 @@ services:
       - ./data/pipelines:/data/pipelines:ro
       - ./data/eval:/data/eval
       - ./data/raw/rfp:/data/raw/rfp
+      # RAG de la base de conocimiento para los generadores de la Parte 2 (rag.py → rag_indexing).
+      - ./data/process:/data/process:ro
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - PIPELINES_PATH=/data/pipelines
@@ -123,11 +125,18 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_API_KEY=${LLM_API_KEY}
       - GENERATION_MODEL=${GENERATION_MODEL}
+      # Grafo rfp_drafting (Hito 9 · Parte 2): base de conocimiento y límite del ciclo.
+      - PROCESS_PATH=/data/process
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+      - RFP_MAX_ITERATIONS=${RFP_MAX_ITERATIONS:-3}
       # Timeout blando por tarea; `TASK_SOFT_TIME_LIMIT=1` provoca la demo de la DLQ.
       - TASK_SOFT_TIME_LIMIT=${TASK_SOFT_TIME_LIMIT:-540}
     depends_on:
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     networks:
       - nexova-net
 

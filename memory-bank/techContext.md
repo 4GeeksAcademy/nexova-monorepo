@@ -63,6 +63,11 @@
   - **El LLM propone, el código decide:** umbral de descarte, sede → moneda, catálogo cerrado de departamentos, cifras con cita literal, conflictos.
   - **Persistencia:** `rfp_ticket`, `rfp_metadata`, `rfp_department_section` (SQLModel en el paquete del pipeline + migración 008). El estado admite ya el vocabulario de las Partes 1–3. PDFs en `data/raw/rfp/` (`RFP_RAW_DIR`), fuera de git.
   - **Handoff a la Parte 2:** `ready_for_drafting` + `handoff_payload` (`rfp_intake.v1`).
+- Generación y evaluación de respuestas a RFP (Hito 9 · Parte 2, ver `docs/rfp/rfp-drafting-design.md`):
+  - **Grafo** `data/pipelines/rfp_drafting/`: un subgrafo por departamento lanzado con `Send` (generar → 3 evaluadores en paralelo → `judge` → repetir con feedback o terminar). Entrada solo el handoff `rfp_intake.v1`; salida `rfp_drafting.v1` en `rfp_ticket.approval_handoff`.
+  - **Evaluación:** legibilidad y cumplimiento deterministas; pertinencia con juez LLM que justifica cada aspecto con una cita. Las reglas del BRIEFING §5 viven en `compliance_rules.py` con `rule_id` estables y el `feedback_for_generator` lo construye el código.
+  - **Límite:** `RFP_MAX_ITERATIONS` (3); al agotarlo la sección queda `needs_human_review` con su último borrador y evaluación. Con todo aprobado el ticket queda en `en_evaluación` + `ready_for_approval` (no se usan estados de la Parte 3).
+  - **Columnas nuevas fuera de `create_all()`:** la migración 009 añade columnas a tablas existentes y hay que aplicarla a mano antes de desplegar.
 - Autenticación de la API: esquema `HTTPBearer` (`security.bearer_scheme` + `get_bearer_token`) en lugar de `OAuth2PasswordBearer`, para que Swagger (`/docs` → Authorize) acepte pegar el `access_token` de `POST /auth/login` (que recibe JSON, no form-data). Sin cabecera o con token inválido sigue respondiendo 401 + `WWW-Authenticate: Bearer`; el backoffice no cambia.
 
 ## Restricciones técnicas

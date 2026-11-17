@@ -39,28 +39,61 @@ def _record_error(ticket_id: str, message: str) -> None:
         logger.exception("ticket=%s no se pudo registrar el error", ticket_id)
 
 
+def _retry_or_fail(task: ObservedTask, ticket_id: str, exc: Exception, phase: str, script: str) -> None:
+    """Deja el fallo visible en el ticket y reintenta; sin reintentos, relanza (→ DLQ)."""
+    error = f"{type(exc).__name__}: {exc}"
+    if task.request.retries < task.max_retries:
+        countdown = retry_countdown(task.request.retries)
+        _record_error(
+            ticket_id,
+            f"{phase}: intento {task.attempt()} de {task.max_retries + 1} falló ({error}); "
+            f"reintento en {countdown} s.",
+        )
+        raise task.retry(exc=exc, countdown=countdown)
+    _record_error(
+        ticket_id,
+        f"{phase} falló tras {task.attempt()} intentos ({error}). Reprocesar con {script} {ticket_id}.",
+    )
+    raise exc
+
+
+def enqueue_drafting(ticket_id: str) -> str | None:
+    """Encola la Parte 2. Si la cola falla, el ticket queda en `analisis_completo` con el aviso."""
+    try:
+        return generate_rfp_responses.apply_async(kwargs={"ticket_id": ticket_id}).id
+    except Exception:
+        logger.exception("ticket=%s no se pudo encolar la generación de borradores", ticket_id)
+        _record_error(ticket_id, "Análisis completo, pero no se pudo encolar la generación de borradores: "
+                                 "usa 'Regenerar borradores'.")
+        return None
+
+
 @app.task(bind=True, base=ObservedTask, name="rfp.run_intake", max_retries=MAX_RETRIES)
 def run_rfp_intake(self: ObservedTask, ticket_id: str) -> dict[str, Any]:
     logger.info("task_id=%s attempt=%d ticket=%s", self.request.id, self.attempt(), ticket_id)
     try:
-        return pipeline_bridge.run_intake(ticket_id, store=pipeline_bridge.get_store())
+        result = pipeline_bridge.run_intake(ticket_id, store=pipeline_bridge.get_store())
     except pipeline_bridge.TicketNotFound:
         # Sin ticket no hay nada que reintentar.
         logger.error("task_id=%s ticket=%s no existe", self.request.id, ticket_id)
         raise
     except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-        if self.request.retries < self.max_retries:
-            countdown = retry_countdown(self.request.retries)
-            _record_error(
-                ticket_id,
-                f"Intento {self.attempt()} de {self.max_retries + 1} falló ({error}); "
-                f"reintento en {countdown} s.",
-            )
-            raise self.retry(exc=exc, countdown=countdown)
-        _record_error(
-            ticket_id,
-            f"El análisis falló tras {self.attempt()} intentos ({error}). "
-            f"Reprocesar con scripts/rfp_reprocess.py {ticket_id}.",
-        )
+        _retry_or_fail(self, ticket_id, exc, "El análisis", "scripts/rfp_reprocess.py")
+    # Parte 2 automática: el handoff de enrutamiento está listo.
+    if result.get("status") == "analisis_completo":
+        result["drafting_task_id"] = enqueue_drafting(ticket_id)
+    return result
+
+
+@app.task(bind=True, base=ObservedTask, name="rfp.generate_responses", max_retries=MAX_RETRIES)
+def generate_rfp_responses(self: ObservedTask, ticket_id: str) -> dict[str, Any]:
+    """Parte 2: borrador + evaluación por departamento a partir del handoff de la Parte 1."""
+    logger.info("task_id=%s attempt=%d ticket=%s drafting", self.request.id, self.attempt(), ticket_id)
+    try:
+        return pipeline_bridge.run_drafting(ticket_id, store=pipeline_bridge.get_store())
+    except (pipeline_bridge.TicketNotFound, pipeline_bridge.HandoffNotReady):
+        # Sin handoff válido de la Parte 1 no hay nada que reintentar.
+        logger.error("task_id=%s ticket=%s sin handoff de la Parte 1", self.request.id, ticket_id)
         raise
+    except Exception as exc:
+        _retry_or_fail(self, ticket_id, exc, "La generación de borradores", "scripts/rfp_drafts.py")
