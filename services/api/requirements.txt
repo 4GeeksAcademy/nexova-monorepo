@@ -31,3 +31,7 @@ httpx>=0.28
 # Agente → MCP Server (mcps/nexova-tools): tools cargadas con langchain-mcp-adapters
 # (Streamable HTTP + OAuth client_credentials). Igual que fija uv.lock (0.3.2, mcp 1.30).
 langchain-mcp-adapters>=0.3.2
+# Recepción de RFPs (Hito 9 · Parte 1): PDF → Markdown antes de cualquier agente y
+# legibilidad para anticipar el costo (descarga perezosa de `punkt_tab` de NLTK).
+markitdown[pdf]>=0.1.9
+py-readability-metrics>=1.4.5

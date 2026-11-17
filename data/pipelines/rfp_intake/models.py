@@ -1,0 +1,114 @@
+"""
+Tablas SQLModel del flujo RFP (Postgres / Supabase).
+
+Esquema versionado en `services/api/migrations/008_rfp_intake.sql`. Como la
+tabla `incident` (006), estas clases también entran en `SQLModel.metadata`:
+cuando la API importa el puente (`services/api/rfp/pipeline_bridge.py`) antes
+del `startup`, `create_db_and_tables()` las crea si no existen.
+
+`rfp_department_section` ya trae las columnas de las Partes 2 y 3 (borrador,
+evaluaciones, aprobación) a `NULL`, para que el mismo ticket continúe sin migrar.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timezone
+from typing import Any
+
+from sqlalchemy import CheckConstraint, Column, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import DateTime
+from sqlmodel import Field, SQLModel
+
+from rfp_intake.departments import DEPARTMENT_IDS, TICKET_STATUSES
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _in_list(column: str, values: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{value}'" for value in values)
+    return f"{column} IN ({quoted})"
+
+
+class RfpTicket(SQLModel, table=True):
+    __tablename__ = "rfp_ticket"
+    __table_args__ = (
+        CheckConstraint(_in_list("status", TICKET_STATUSES), name="ck_rfp_ticket_status"),
+    )
+
+    ticket_id: str = Field(primary_key=True, max_length=20)
+    rfp_id: str | None = Field(default=None, max_length=120)
+    status: str = Field(default="analizando", max_length=30, index=True)
+    raw_pdf_path: str = Field(max_length=500)
+    original_filename: str = Field(max_length=255)
+    markdown: str | None = Field(default=None, sa_type=Text)
+    classification: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    synthesis: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    handoff_payload: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    ready_for_drafting: bool = Field(default=False, index=True)
+    error_message: str | None = Field(default=None, sa_type=Text)
+    attempts: int = Field(default=0)
+    created_by: str | None = Field(default=None, max_length=120)
+    created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+
+
+class RfpMetadata(SQLModel, table=True):
+    __tablename__ = "rfp_metadata"
+
+    ticket_id: str = Field(
+        sa_column=Column(
+            String(20), ForeignKey("rfp_ticket.ticket_id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    client_name: str | None = Field(default=None, max_length=255)
+    client_hq: str = Field(default="desconocido", max_length=30)
+    client_location: str | None = Field(default=None, max_length=255)
+    currency: str | None = Field(default=None, max_length=3)
+    rfp_type: str | None = Field(default=None, max_length=20)
+    services_requested: list[str] = Field(default_factory=list, sa_type=JSONB)
+    scope: str | None = Field(default=None, sa_type=Text)
+    volumes: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    deadline: date | None = Field(default=None)
+    deadline_text: str | None = Field(default=None, max_length=255)
+    budget_range: str | None = Field(default=None, max_length=255)
+    client_contact: str | None = Field(default=None, max_length=255)
+    departments_needed: list[str] = Field(default_factory=list, sa_type=JSONB)
+    unmapped_services: list[str] = Field(default_factory=list, sa_type=JSONB)
+    readability: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+
+
+class RfpDepartmentSection(SQLModel, table=True):
+    __tablename__ = "rfp_department_section"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", "department_id", name="uq_rfp_section_ticket_department"),
+        CheckConstraint(_in_list("department_id", DEPARTMENT_IDS), name="ck_rfp_section_department"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticket_id: str = Field(
+        sa_column=Column(
+            String(20),
+            ForeignKey("rfp_ticket.ticket_id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    department_id: str = Field(max_length=30)
+    owner_name: str = Field(max_length=120)
+    key_aspects: list[str] = Field(default_factory=list, sa_type=JSONB)
+    requests_to_owner: list[str] = Field(default_factory=list, sa_type=JSONB)
+    open_questions: list[str] = Field(default_factory=list, sa_type=JSONB)
+    figures_cited: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    excerpts: list[str] = Field(default_factory=list, sa_type=JSONB)
+    # --- Partes 2 y 3 (NULL en la Parte 1) ---------------------------------
+    draft_content: str | None = Field(default=None, sa_type=Text)
+    evaluation_results: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    approval_status: str | None = Field(default=None, max_length=30)
+    approver: str | None = Field(default=None, max_length=120)
+    approved_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))

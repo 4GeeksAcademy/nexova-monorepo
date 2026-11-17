@@ -44,6 +44,7 @@ from database import create_db_and_tables
 from knowledge import router as knowledge
 from models import HealthResponse
 from reporting import router as reporting
+from rfp import router as rfp
 from routers import inventory
 from routes import auth, profiles, suppliers, telemetry, users
 from routes.telemetry import log_telemetry_event
@@ -212,6 +213,7 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(telemetry.router)
 app.include_router(reporting.router)
+app.include_router(rfp.router)
 app.include_router(knowledge.router)
 app.include_router(agent.router)
 app.include_router(tasks.router)

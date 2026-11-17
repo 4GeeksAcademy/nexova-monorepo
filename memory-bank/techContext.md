@@ -57,6 +57,12 @@
   - **Grafo.** `build_graph(guardrails=Guardrails(...))` añade `guard_input`, `guard_refuse`, `small_talk` y `guard_output`; `get_agent_graph()` lo activa siempre. Los bloqueos ocurren antes de la memoria, el enrutador y las tools; `propose_memory` va después de `guard_output`.
   - **Tenancy.** `User.client_company` (opcional) + rol: admin/manager ven todo, un usuario externo solo su empresa (filtro forzado) y sin empresa no consulta tickets (`ToolStatus` `forbidden`). `run_agent(tenant=...)`: la API siempre pasa el del usuario; el valor por defecto (interno) es solo para scripts y tests.
   - **Observabilidad.** Eventos con `failure_type` (`structural`/`content`/`security`) en el log, en un JSONL append-only (`AGENT_GUARDRAIL_LOG`) y en `trace["guardrails"]`; resumen en `GET /agent/guardrails/summary` (solo personal interno) y `scripts/agent_guardrails_report.py`.
+- Recepción de RFPs (Hito 9 · Parte 1, ver `docs/rfp/rfp-intake-design.md`):
+  - **Layout.** Grafo LangGraph dedicado en `data/pipelines/rfp_intake/` (no comparte nodos con el agente CX); `services/api/rfp/` solo hace HTTP vía `pipeline_bridge`; la tarea Celery `rfp.run_intake` ejecuta el grafo en el worker.
+  - **Agentes separados** (clasificador, extractor, orquestador, un worker por departamento con `Send`, synthesizer) que reciben un `LlmFn` inyectado `(task, system, user) -> dict`; cliente propio sobre `LLM_BASE_URL`/`LLM_API_KEY`/`GENERATION_MODEL` para que el worker no dependa de Qdrant.
+  - **El LLM propone, el código decide:** umbral de descarte, sede → moneda, catálogo cerrado de departamentos, cifras con cita literal, conflictos.
+  - **Persistencia:** `rfp_ticket`, `rfp_metadata`, `rfp_department_section` (SQLModel en el paquete del pipeline + migración 008). El estado admite ya el vocabulario de las Partes 1–3. PDFs en `data/raw/rfp/` (`RFP_RAW_DIR`), fuera de git.
+  - **Handoff a la Parte 2:** `ready_for_drafting` + `handoff_payload` (`rfp_intake.v1`).
 - Autenticación de la API: esquema `HTTPBearer` (`security.bearer_scheme` + `get_bearer_token`) en lugar de `OAuth2PasswordBearer`, para que Swagger (`/docs` → Authorize) acepte pegar el `access_token` de `POST /auth/login` (que recibe JSON, no form-data). Sin cabecera o con token inválido sigue respondiendo 401 + `WWW-Authenticate: Bearer`; el backoffice no cambia.
 
 ## Restricciones técnicas

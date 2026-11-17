@@ -66,6 +66,15 @@ export default function DashboardLayout({
             </li>
             <li>
               <Link
+                href="/rfp"
+                prefetch={false}
+                className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
+              >
+                Recepción de RFPs
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/telemetry"
                 prefetch={false}
                 className="block rounded-xl px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-900 hover:text-slate-100"
