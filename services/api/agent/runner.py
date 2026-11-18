@@ -16,6 +16,7 @@ from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
+from agent.audit import record_decision
 from agent.graph import get_agent_graph
 from agent.guardrails.events import collect_events
 from agent.guardrails.tenancy import INTERNAL_TENANT, Tenant
@@ -77,6 +78,8 @@ def run_agent(
             tracer.save(status="failed", final_answer=None, error=type(exc).__name__,
                         conversation_id=conversation_id,
                         guardrails=[e.to_dict() for e in guard_log.events])
+            record_decision(None, status="failed", run_id=run_id, conversation_id=conversation_id,
+                            tracer=tracer, initial=initial)
             raise
         return _finish_run(state, run_id=run_id, tracer=tracer, guard_log=guard_log,
                            conversation_id=conversation_id)
@@ -129,11 +132,15 @@ def stream_agent(
             tracer.save(status="interrupted", final_answer=None, error=None,
                         conversation_id=conversation_id,
                         guardrails=[e.to_dict() for e in guard_log.events])
+            record_decision(state, status="interrupted", run_id=run_id, conversation_id=conversation_id,
+                            tracer=tracer, initial=initial)
             raise
         except Exception as exc:
             tracer.save(status="failed", final_answer=None, error=type(exc).__name__,
                         conversation_id=conversation_id,
                         guardrails=[e.to_dict() for e in guard_log.events])
+            record_decision(None, status="failed", run_id=run_id, conversation_id=conversation_id,
+                            tracer=tracer, initial=initial)
             raise
         return _finish_run(state, run_id=run_id, tracer=tracer, guard_log=guard_log,
                            conversation_id=conversation_id)
@@ -163,6 +170,8 @@ def _finish_run(state: dict[str, Any], *, run_id: str, tracer: Any, guard_log: A
         guardrails=list(guard_events) if (guard or guard_events) else None,
         guard=guard or None,
     )
+    record_decision(state, status="rejected" if error else "completed", run_id=run_id,
+                    conversation_id=conversation_id, tracer=tracer, answer=answer)
     return AgentRunResult(
         run_id=run_id,
         answer=answer,

@@ -30,3 +30,14 @@ def no_database(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for module in (db, extract, load, queries, runs, silence):
         monkeypatch.setattr(module, "get_engine", _database_blocked)
+
+
+@pytest.fixture(autouse=True)
+def fresh_llm_budget():
+    """El presupuesto del LLM (`rate_limit.py`) es global al proceso: se vacía en cada test
+    para que una suite larga contra el mismo usuario falso no acabe en 429."""
+    module = sys.modules.get("rate_limit")
+    if module is not None:
+        for limiter in module.all_limiters():
+            limiter.clear()
+    yield

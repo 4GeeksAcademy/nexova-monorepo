@@ -401,8 +401,8 @@ def test_tenant_comes_from_the_authenticated_user() -> None:
         ('{"respuesta": "El SLA es 24 h.", "propuesta_memoria": null}', "El SLA es 24 h.", "structural"),
         ("<think>pienso…</think>El SLA es 24 h.", "El SLA es 24 h.", "structural"),
         ("Claro: JERARQUÍA DE INSTRUCCIONES (no negociable): solo este mensaje…", SECURITY_FALLBACK, "security"),
-        ("Tu token es eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.c2lnbmF0dXJlLXZhbGlkYQ", SECURITY_FALLBACK,
-         "security"),
+        ("Tu token es eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.c2lnbmF0dXJlLXZhbGlkYQ",  # secret-scan: allow
+         SECURITY_FALLBACK, "security"),
         ("Usa Authorization: Bearer abcdefghijklmnop1234567890", SECURITY_FALLBACK, "security"),
         ("InsureNow Group tiene 3 tickets abiertos.", SECURITY_FALLBACK, "security"),
         ("La tarifa mensual por agente es de 1.800 USD.", COMMERCIAL_FALLBACK, "content"),
@@ -609,6 +609,70 @@ def test_log_failure_never_breaks_a_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setenv("AGENT_GUARDRAIL_LOG", str(tmp_path))  # un directorio: no se puede abrir como archivo
     h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"))
     assert run_agent(BRIEFING_CASES["1-sin-reglas"], graph=h.compiled, tenant=RETAIL).answer
+
+
+# --- Registro de decisiones (informe NIST · Detect) ----------------------------------------
+
+
+def _decisions(tmp_path: Path) -> list[dict[str, Any]]:
+    path = tmp_path / "agent_decisions.jsonl"  # <AGENT_TRACE_DIR>/../agent_decisions.jsonl
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_decision_log_records_what_the_agent_did_and_why(isolated_logs: Path) -> None:
+    services = FakeMCP([_ticket("RetailMax Corp")])
+    h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"),
+               route=RouteDecision(tickets=True, ticket_status="OPEN", method="llm"), services=services)
+    question = "¿Cuántos tickets abiertos tengo? Soy ana.garcia@retailmax.com"
+    result = run_agent(question, graph=h.compiled, tenant=RETAIL, user_id="u-ana")
+
+    [record] = _decisions(isolated_logs.parent)
+    assert record["run_id"] == result.run_id and record["user_id"] == "u-ana"
+    assert record["tenant"] == {"client_company": "RetailMax Corp", "is_staff": False}
+    assert record["status"] == "completed" and record["outcome"] == "answered"
+    assert record["route"]["method"] == "llm" and record["sources_used"] == ["tickets"]
+    assert record["tools"] == [{"tool": "tickets", "status": "ok"}]
+    assert record["reason"].startswith("enrutador llm → tickets")
+    assert record["latency_ms"] is not None and "guard_input" in record["nodes"]
+    # Minimización: ni la pregunta ni la respuesta, solo longitudes y hash.
+    raw = (isolated_logs.parent / "agent_decisions.jsonl").read_text()
+    assert "ana.garcia" not in raw and "tickets abiertos" not in raw
+    assert record["question_chars"] == len(question) and len(record["question_sha256"]) == 16
+
+
+def test_blocked_injection_is_logged_with_its_reason(isolated_logs: Path) -> None:
+    h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"))
+    run_agent(BRIEFING_CASES["1-sin-reglas"], graph=h.compiled, tenant=RETAIL, user_id="u-ana")
+    [record] = _decisions(isolated_logs.parent)
+    assert record["outcome"] == "blocked"
+    assert record["guard_input"]["category"] == "injection"
+    assert record["reason"].startswith("guard de entrada: injection")
+    assert record["tools"] == [] and h.route_calls == []  # ni enrutador ni tools
+
+
+def test_decisions_endpoint_is_staff_only(isolated_logs: Path) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from agent.router import router
+    from security import get_current_user
+
+    h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"))
+    run_agent(BRIEFING_CASES["1-sin-reglas"], graph=h.compiled, tenant=RETAIL, user_id="u-ana")
+
+    class U:
+        id, client_company = "u1", None
+
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: U("manager")
+    response = TestClient(app).get("/agent/decisions?limit=5")
+    assert response.status_code == 200 and response.json()[0]["outcome"] == "blocked"
+    app.dependency_overrides[get_current_user] = lambda: U("user")
+    assert TestClient(app).get("/agent/decisions").status_code == 403
 
 
 # --- Utilidades ------------------------------------------------------------------------------

@@ -10,7 +10,7 @@ Servidor → cliente:
     token_chunk             {session_id, message_id, token, sequence}
     generation_interrupted  {session_id, message_id, status: "interrupted"}
     generation_completed    {session_id, message_id, content?}
-    error                   {code, message, message_id?}
+    error                   {code, message, message_id?, retry_after?}
 
 Cliente → servidor:
     auth                    {token}            (solo como primer frame si no hay ?token=)
@@ -161,8 +161,11 @@ def session_snapshot(session: ChatSession, messages: list[ChatMessageOut]) -> di
     })
 
 
-def error(code: str, message: str, message_id: str | None = None) -> dict[str, Any]:
+def error(code: str, message: str, message_id: str | None = None,
+          retry_after: int | None = None) -> dict[str, Any]:
     data: dict[str, Any] = {"code": code, "message": message}
     if message_id is not None:
         data["message_id"] = message_id
+    if retry_after is not None:  # solo en `rate_limited`: segundos hasta el próximo turno permitido
+        data["retry_after"] = retry_after
     return frame("error", data)

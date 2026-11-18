@@ -85,6 +85,14 @@
   - **Contenido externo para LLM.** Los documentos de RFP pasan por `agent.guardrails.isolation.sanitize_text` y se escapan `<`/`>` en `rfp_intake/prompts.wrap_document`.
   - **Infra.** `docker-compose.yml` endurecido por defecto (puertos solo en 127.0.0.1, Redis/Qdrant sin puertos y con `REDIS_PASSWORD`/`QDRANT_API_KEY`, no-root, `cap_drop: ALL`, `no-new-privileges`, `UIS_MODE=production`). `docker-compose.dev.yml` es el override de desarrollo. Servidor: `infra/server/bootstrap.sh`.
 
+- Prácticas seguras de IA (informe NIST, ver `docs/security/nist-ai-security-report.md`):
+  - **Presupuesto del LLM.** Todo endpoint que dispara un modelo llama a `rate_limit.enforce_llm_budget(scope, user_id)` (o `consume_llm_budget` en el WebSocket, que responde un frame `rate_limited` con `retry_after`). Scopes en `LLM_SCOPES`; el prefijo de clave decide qué scopes comparten contador. En memoria, un proceso; `all_limiters()` para vaciarlos en tests.
+  - **Contenido externo para LLM.** Cualquier documento nuevo que llegue a un modelo reutiliza `agent.guardrails.isolation.sanitize_text` / `input_guard.detect_injection` (import perezoso con fallback a solo escape, como `rfp_intake/prompts.py` y `rag.py`) y va entre delimitadores escapados.
+  - **CV.** Todo CV entra por `data/pipelines/cv_intake/` (`extract_cv` → `prepare_cv_for_llm` → `run_extraction`): solo texto visible al modelo, esquema `CvExtraction` cerrado y minimizado, sin puntuación ni descarte (RGPD art. 22).
+  - **Salida del modelo hacia tools.** Contrato Pydantic cerrado (`extra="forbid"`), sin coerción silenciosa; si no valida, respaldo determinista.
+  - **Registro de decisiones.** `agent/audit.py` (JSONL `AGENT_DECISION_LOG`): qué hizo y por qué cada corrida del agente, sin texto del usuario (hash y longitud).
+  - **Secretos.** `scripts/security/secret_scan.py` es el chequeo reproducible (lo ejecuta `tests/security/test_no_hardcoded_secrets.py`).
+
 ## Restricciones técnicas
 - Dependencia obligatoria de variable de entorno para URL de API; sin configuración no funciona la integración.
 - Restricción de valores de estado y etapa mediante enums cerrados; cualquier valor fuera de contrato rompe consistencia.

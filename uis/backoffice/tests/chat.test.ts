@@ -44,6 +44,27 @@ describe("parseServerEvent", () => {
       parseServerEvent(raw("session_snapshot", { status: "active", messages: [{ message_id: "m" }] })),
     ).toBeNull();
   });
+
+  it("rate_limited lleva retry_after y el reducer lo expone para el aviso", () => {
+    const frame = raw("error", { code: "rate_limited", message: "Has enviado demasiados mensajes. Espera 42 s.", retry_after: 42 });
+    expect(parseServerEvent(frame)).toEqual({
+      event: "error",
+      code: "rate_limited",
+      message: "Has enviado demasiados mensajes. Espera 42 s.",
+      retryAfter: 42,
+    });
+    expect(apply(INITIAL_CHAT_STATE, frame).error).toEqual({
+      code: "rate_limited",
+      message: "Has enviado demasiados mensajes. Espera 42 s.",
+      retryAfter: 42,
+    });
+    // Un retry_after no entero o negativo se ignora (contrato validado, nunca `as`).
+    expect(parseServerEvent(raw("error", { code: "rate_limited", message: "x", retry_after: -1 }))).toEqual({
+      event: "error",
+      code: "rate_limited",
+      message: "x",
+    });
+  });
 });
 
 describe("chatReducer", () => {

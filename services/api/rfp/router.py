@@ -56,6 +56,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from models import User
+from rate_limit import enforce_llm_budget
 from sqlalchemy.exc import SQLAlchemyError
 from tasks.rfp import (
     enqueue_approvals,
@@ -142,6 +143,7 @@ def upload_rfp(
     file: UploadFile = File(..., description="RFP en PDF"),
     current_user: User = Depends(require_internal_user),
 ) -> RfpTicketAccepted:
+    enforce_llm_budget("rfp", current_user.id)  # cada RFP lanza varios agentes en el worker
     content = file.file.read(pipeline_bridge.MAX_PDF_BYTES + 1)
     store = pipeline_bridge.get_store()
     try:
@@ -178,7 +180,8 @@ _DRAFTING_IN_PROGRESS = ("generando_borrador", "en_evaluación")
     response_model=RfpDraftingAccepted,
     summary="(Re)genera y evalúa los borradores por departamento (Parte 2)",
 )
-def regenerate_drafts(ticket_id: str, _: User = Depends(require_internal_user)) -> RfpDraftingAccepted:
+def regenerate_drafts(ticket_id: str, current_user: User = Depends(require_internal_user)) -> RfpDraftingAccepted:
+    enforce_llm_budget("rfp", current_user.id)
     store = pipeline_bridge.get_store()
     try:
         ticket = store.get_ticket(ticket_id)

@@ -33,6 +33,7 @@ from chat.schemas import AuthFrame, ChatSession, ChatSessionWithMessages, ChatMe
 from chat.store import SqliteChatStore
 from models import User
 from http_security import origin_allowed
+from rate_limit import consume_llm_budget
 from security import decode_token_claims, get_current_user, token_still_valid
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -148,6 +149,14 @@ async def _receive_frames(websocket: WebSocket, service: ChatService, session_id
         session = service.store.get_session(session_id)
         if session is None or session.status == "closed":
             await websocket.send_json(schemas.error("session_closed", "La sesión está cerrada."))
+            continue
+        # Presupuesto del LLM (informe NIST · Protect): un WebSocket no tiene 429, así que
+        # el turno se rechaza con un frame `rate_limited` y la conexión sigue abierta.
+        wait = consume_llm_budget("chat", user.id)
+        if wait:
+            await websocket.send_json(schemas.error(
+                "rate_limited", f"Has enviado demasiados mensajes. Espera {wait} s.", retry_after=wait,
+            ))
             continue
         text = incoming.data.text if isinstance(incoming, schemas.UserMessageFrame) else incoming.data.new_input
         await runner.submit(text, user=user, tenant=tenant)
