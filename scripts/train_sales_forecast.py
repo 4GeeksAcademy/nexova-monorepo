@@ -25,6 +25,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "data" / "pipelines"))
 
+from _cli import fail, reason  # noqa: E402
 from sales_forecast import model as forecast_model  # noqa: E402
 from sales_forecast.dataset import RAW_CSV_PATH, load_sales, split_train_test  # noqa: E402
 from sales_forecast.features import (  # noqa: E402
@@ -77,7 +78,14 @@ def _rounded(value: object) -> object:
 
 
 def run(data_path: Path, out_dir: Path) -> dict:
-    series = load_sales(data_path)
+    if not data_path.is_file():
+        fail(f"no existe el CSV de ventas {data_path}.")
+    try:
+        series = load_sales(data_path)
+    except (OSError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        fail(f"no se pudo leer {data_path} ({reason(exc)}).")
+    except ValueError as exc:  # el dataset no cumple el BRIEFING (columnas, nulos, meses): se muestra el motivo
+        fail(f"el CSV de ventas no es válido: {exc}")
     train_raw, test_raw = split_train_test(series)
 
     features = build_features(series)
@@ -154,8 +162,11 @@ def run(data_path: Path, out_dir: Path) -> dict:
     }
 
     metrics = _rounded(metrics)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        fail(f"no se pudo escribir en {out_dir} ({reason(exc)}).")
     pd.DataFrame(
         {
             "month": test["month"].dt.strftime("%Y-%m-%d"),

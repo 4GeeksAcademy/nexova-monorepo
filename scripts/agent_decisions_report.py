@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 load_dotenv(REPO_ROOT / ".env")
 
+from _cli import fail, reason  # noqa: E402
 from agent.audit import log_path, read_decisions  # noqa: E402
 
 
@@ -36,7 +37,12 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="salida JSON")
     args = parser.parse_args()
 
-    records = read_decisions(args.limit if not args.run_id else 100_000)
+    if args.limit < 1:
+        fail("--limit debe ser un entero ≥ 1.", code=2)
+    try:
+        records = read_decisions(args.limit if not args.run_id else 100_000)
+    except (OSError, ValueError) as exc:
+        fail(f"no se pudo leer el registro de decisiones en {log_path()} ({reason(exc)}).")
     if args.outcome:
         records = [r for r in records if r.get("outcome") == args.outcome]
     if args.run_id:

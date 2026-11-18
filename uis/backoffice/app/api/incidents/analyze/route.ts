@@ -1,10 +1,16 @@
+import { backendFetch, badRequest } from "@/lib/backend-fetch";
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
 export async function POST(request: Request): Promise<Response> {
   const authorization = request.headers.get("authorization");
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return badRequest("No se pudo leer el fichero subido. Inténtalo de nuevo.");
+  }
 
-  const backendResponse = await fetch(`${BACKEND_API_URL}/api/incidents/analyze`, {
+  const backendResponse = await backendFetch(`${BACKEND_API_URL}/api/incidents/analyze`, {
     method: "POST",
     headers: authorization ? { authorization } : {},
     body: formData,

@@ -67,6 +67,7 @@ def get_task_status(
     if task_status == "success":
         response["result"] = payload
     elif task_status in ("retry", "failure") and isinstance(payload, BaseException):
-        # Solo el mensaje: el traceback queda en el log del worker y en la DLQ.
-        response["error"] = f"{type(payload).__name__}: {payload}"
+        # Solo el tipo: el texto de la excepción puede incluir hosts, rutas o credenciales.
+        # El detalle y el traceback quedan en el log del worker y en la DLQ.
+        response["error"] = f"{type(payload).__name__}: la tarea falló; consulta el log del worker."
     return response

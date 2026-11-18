@@ -1,6 +1,7 @@
 import type { AnalysisSummary } from "./types";
 import { getToken } from "./auth-storage";
 import { handleSessionExpired } from "./session";
+import { CONNECTION_ERROR_MESSAGE, GENERIC_ERROR_MESSAGE, statusMessage, userMessage } from "./http-errors";
 
 const API_BASE_PATH = "/api/incidents";
 
@@ -26,29 +27,38 @@ export class ApiError extends Error {
 async function readErrorDetail(res: Response): Promise<string> {
   try {
     const body = await res.json();
-    if (typeof body?.detail === "string") return body.detail;
+    return userMessage(res.status, body?.detail);
   } catch {
     // el cuerpo no era JSON, seguimos con el mensaje genérico
   }
-  return `Error inesperado (HTTP ${res.status}).`;
+  return statusMessage(res.status);
 }
 
 export async function analyzeIncidentsFile(file: File): Promise<AnalysisSummary> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${API_BASE_PATH}/analyze`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_PATH}/analyze`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: formData,
+    });
+  } catch {
+    throw new ApiError(0, CONNECTION_ERROR_MESSAGE);
+  }
 
   if (!res.ok) {
     handleUnauthorized(res);
     throw new ApiError(res.status, await readErrorDetail(res));
   }
 
-  return res.json();
+  try {
+    return (await res.json()) as AnalysisSummary;
+  } catch {
+    throw new ApiError(res.status, GENERIC_ERROR_MESSAGE); // respuesta que no es JSON
+  }
 }
 
 /**
@@ -56,9 +66,14 @@ export async function analyzeIncidentsFile(file: File): Promise<AnalysisSummary>
  * disparando el diálogo nativo de "guardar como".
  */
 export async function downloadResultsCsv(): Promise<void> {
-  const res = await fetch(`${API_BASE_PATH}/results/export`, {
-    headers: authHeaders(),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_PATH}/results/export`, {
+      headers: authHeaders(),
+    });
+  } catch {
+    throw new ApiError(0, CONNECTION_ERROR_MESSAGE);
+  }
 
   if (!res.ok) {
     handleUnauthorized(res);

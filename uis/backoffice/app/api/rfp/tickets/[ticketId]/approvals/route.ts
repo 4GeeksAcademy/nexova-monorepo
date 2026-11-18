@@ -1,3 +1,4 @@
+import { backendFetch } from "@/lib/backend-fetch";
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
 /** (Re)abre la aprobación humana de las secciones (Parte 3); `?department_id=` para una sola. El backend responde 202. */
@@ -10,7 +11,7 @@ export async function POST(
   const departmentId = new URL(request.url).searchParams.get("department_id");
   const query = departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : "";
 
-  const backendResponse = await fetch(
+  const backendResponse = await backendFetch(
     `${BACKEND_API_URL}/rfp/tickets/${encodeURIComponent(ticketId)}/approvals${query}`,
     {
       method: "POST",

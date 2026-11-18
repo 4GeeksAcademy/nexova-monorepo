@@ -24,12 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 load_dotenv(REPO_ROOT / ".env")
 
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
+
+from _cli import fail, reason  # noqa: E402
 from agent.memory.service import AgentMemory  # noqa: E402
 from agent.memory.store import PostgresMemoryStore  # noqa: E402
 
 
 def main() -> None:
-    summary = AgentMemory(PostgresMemoryStore()).consolidate()
+    try:
+        summary = AgentMemory(PostgresMemoryStore()).consolidate()
+    except (SQLAlchemyError, KeyError, RuntimeError) as exc:  # sin BD o sin DATABASE_URL
+        fail(
+            f"no se pudo consolidar la memoria del agente ({reason(exc)}). "
+            "Comprueba DATABASE_URL, la conexión y la migración 007."
+        )
     print(json.dumps(summary, ensure_ascii=False))
 
 

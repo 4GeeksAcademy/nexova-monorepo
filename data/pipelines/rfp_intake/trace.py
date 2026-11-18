@@ -123,7 +123,9 @@ def traced(
                     if pause.args and isinstance(pause.args[0], (list, tuple)) else {"interrupt": True})
             raise
         except Exception as exc:
-            _finish(STATUS_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
+            # Solo el tipo: el trace se sirve por `GET /rfp/tickets/{id}/trace` y el texto de la
+            # excepción puede incluir rutas, URLs o fragmentos del documento. El detalle va al log del worker.
+            _finish(STATUS_ERROR, {"error": type(exc).__name__})
             raise
 
         finished = _finish(STATUS_OK, result or {})

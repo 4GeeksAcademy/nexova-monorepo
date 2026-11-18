@@ -1,9 +1,10 @@
+import { backendFetch } from "@/lib/backend-fetch";
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
 export async function GET(request: Request): Promise<Response> {
   const authorization = request.headers.get("authorization");
 
-  const backendResponse = await fetch(`${BACKEND_API_URL}/api/incidents/results/export`, {
+  const backendResponse = await backendFetch(`${BACKEND_API_URL}/api/incidents/results/export`, {
     headers: authorization ? { authorization } : {},
     cache: "no-store",
   });

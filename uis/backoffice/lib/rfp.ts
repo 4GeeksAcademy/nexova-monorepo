@@ -1,5 +1,6 @@
 import { getToken } from "./auth-storage";
 import { handleSessionExpired } from "./session";
+import { statusMessage, userMessage } from "./http-errors";
 
 /**
  * Cliente de la recepción de RFPs (Hito 9 · Parte 1), vía los proxies de
@@ -574,11 +575,11 @@ function parseAccepted(raw: unknown): RfpTicketAccepted {
 async function readErrorDetail(res: Response): Promise<string> {
   try {
     const body: unknown = await res.json();
-    if (isRecord(body) && typeof body.detail === "string") return body.detail;
+    if (isRecord(body)) return userMessage(res.status, body.detail);
   } catch {
     // el cuerpo no era JSON, seguimos con el mensaje genérico
   }
-  return `Error inesperado (HTTP ${res.status}).`;
+  return statusMessage(res.status);
 }
 
 async function request<T>(

@@ -26,6 +26,24 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:1/0")
 
 
 @pytest.fixture(autouse=True)
+def default_rate_limits(monkeypatch):
+    """Los tests asumen los límites por defecto (10/min, 200/día, 10 turnos/min, 20 RFP/h).
+
+    `LLM_RATE_LIMIT_PER_MINUTE=3` en el `.env` (o exportado en la terminal, p. ej. tras
+    `source .env`) cambiaría esos límites al importar `rate_limit` y rompería los tests.
+    """
+    import rate_limit
+
+    for limiter, attempts in (
+        (rate_limit.llm_per_minute, 10),
+        (rate_limit.llm_per_day, 200),
+        (rate_limit.chat_turns, 10),
+        (rate_limit.rfp_jobs, 20),
+    ):
+        monkeypatch.setattr(limiter, "max_attempts", attempts)
+
+
+@pytest.fixture(autouse=True)
 def isolated_users(tmp_path, monkeypatch):
     import password_resets
     import rate_limit

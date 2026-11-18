@@ -8,7 +8,7 @@ Requiere:
   (QDRANT_URL, LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL, GENERATION_MODEL);
 - la API y el MCP Server `mcps/nexova-tools` corriendo (tools en vivo vía
   MCP: `AGENT_MCP_URL`, por defecto http://localhost:8100/mcp), con los
-  tickets cargados vía `POST /api/incidents/analyze`;
+  incidencias cargadas con `scripts/seed_incidents.py`;
 - las credenciales M2M del agente en Logto (`AGENT_MCP_TOKEN_URL`,
   `AGENT_MCP_CLIENT_ID`, `AGENT_MCP_CLIENT_SECRET`; el token nunca se guarda
   en el trace).
@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 load_dotenv(REPO_ROOT / ".env")
 
+from _cli import fail, reason  # noqa: E402
 from agent.graph import get_agent_graph  # noqa: E402
 from agent.runner import run_agent, run_config  # noqa: E402
 
@@ -54,15 +55,33 @@ CASES = {
 }
 
 
-def main() -> None:
-    FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
-    graph = get_agent_graph()  # compila (y valida) antes de cualquier corrida
+def main() -> int:
+    try:
+        FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        fail(f"no se pudo crear {FIXTURES_DIR} ({reason(exc)}).")
+    try:
+        graph = get_agent_graph()  # compila (y valida) antes de cualquier corrida
+    except Exception as exc:  # noqa: BLE001 — error estructural del grafo o de su configuración
+        fail(f"no se pudo compilar el grafo del agente ({reason(exc)}).")
+
+    failed: list[str] = []
     for name, question in CASES.items():
-        result = run_agent(question, graph=graph)
+        try:
+            result = run_agent(question, graph=graph)
+        except Exception as exc:  # noqa: BLE001 — Qdrant, LLM o MCP caídos: se sigue con el resto de casos
+            print(f"Error: el caso '{name}' falló ({reason(exc)}).", file=sys.stderr)
+            failed.append(name)
+            continue
         checkpoints = list(graph.get_state_history(run_config(result.run_id)))
         target = FIXTURES_DIR / f"{name}.json"
-        shutil.copyfile(result.trace_path, target)
-        trace = json.loads(target.read_text(encoding="utf-8"))
+        try:
+            shutil.copyfile(result.trace_path, target)
+            trace = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Error: no se pudo guardar el trace de '{name}' ({reason(exc)}).", file=sys.stderr)
+            failed.append(name)
+            continue
         print(f"\n=== {name} (run_id={result.run_id}) ===")
         print(f"pregunta:     {question}")
         print(f"ruta:         {trace['route']}")
@@ -72,6 +91,11 @@ def main() -> None:
         print(f"respuesta:    {result.answer}")
         print(f"trace:        {target.relative_to(REPO_ROOT)}")
 
+    if failed:
+        print(f"\nCasos con error: {', '.join(failed)}", file=sys.stderr)
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,5 +1,7 @@
 "use client";
 
+import ErrorNotice from "@/components/ErrorNotice";
+import { CONNECTION_ERROR_MESSAGE } from "@/lib/http-errors";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import NewTicketToast, { type NewTicketNotice } from "@/components/rfp/NewTicketToast";
@@ -41,7 +43,7 @@ function errorMessage(err: unknown): string {
   if (err instanceof RfpError) {
     return err.status === 403 ? "Solo el personal interno de Nexova puede ver las RFPs." : err.message;
   }
-  return "No se pudo conectar con la API. Revisa que el backend esté levantado.";
+  return CONNECTION_ERROR_MESSAGE;
 }
 
 export default function RfpInboxPage() {
@@ -162,7 +164,12 @@ export default function RfpInboxPage() {
           </p>
         </div>
         {loadError && (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</p>
+          <ErrorNotice
+            className="mb-4"
+            title="No se ha podido cargar la lista de RFPs"
+            message={loadError}
+            onRetry={() => setRefreshKey((key) => key + 1)}
+          />
         )}
         {tickets === null && !loadError ? (
           <p className="text-sm text-stone-500">Cargando tickets…</p>

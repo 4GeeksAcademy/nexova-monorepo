@@ -8,6 +8,12 @@ import type {
 	RecordsListResponse,
 } from "@/types";
 import { clearToken, getToken } from "./auth-storage";
+import {
+	CONNECTION_ERROR_MESSAGE,
+	GENERIC_ERROR_MESSAGE,
+	statusMessage,
+	userMessage,
+} from "./http-errors";
 
 function getApiBaseUrl(): string {
 	const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -24,14 +30,19 @@ async function apiRequest<T>(
 ): Promise<T> {
 	const token = getToken();
 
-	const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
-		headers: {
-			"Content-Type": "application/json",
-			...(token ? { Authorization: `Bearer ${token}` } : {}),
-			...(options?.headers ?? {}),
-		},
-		...options,
-	});
+	let response: Response;
+	try {
+		response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+			headers: {
+				"Content-Type": "application/json",
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+				...(options?.headers ?? {}),
+			},
+			...options,
+		});
+	} catch {
+		throw new Error(CONNECTION_ERROR_MESSAGE);
+	}
 
 	if (response.status === 401) {
 		clearToken();
@@ -42,11 +53,19 @@ async function apiRequest<T>(
 	}
 
 	const text = await response.text();
-	const data = text ? JSON.parse(text) : null;
+	let data: unknown = null;
+	if (text) {
+		try {
+			data = JSON.parse(text);
+		} catch {
+			// El cuerpo no es JSON (p. ej. una página de error del servidor): nunca se muestra en crudo.
+			throw new Error(response.ok ? GENERIC_ERROR_MESSAGE : statusMessage(response.status));
+		}
+	}
 
 	if (!response.ok) {
-		const message = data?.error ?? data?.message ?? "Error de API";
-		throw new Error(message);
+		const body = data as { error?: unknown; message?: unknown } | null;
+		throw new Error(userMessage(response.status, body?.error ?? body?.message));
 	}
 
 	return data as T;

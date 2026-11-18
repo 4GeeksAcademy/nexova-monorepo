@@ -1,5 +1,6 @@
 import { getToken } from "./auth-storage";
 import { handleSessionExpired } from "./session";
+import { CONNECTION_ERROR_MESSAGE, GENERIC_ERROR_MESSAGE, TIMEOUT_ERROR_MESSAGE, statusMessage, userMessage } from "./http-errors";
 import type {
   Asset,
   AssetCreatePayload,
@@ -34,11 +35,11 @@ export class ApiError extends Error {
 async function readErrorDetail(res: Response): Promise<string> {
   try {
     const body = await res.json();
-    if (typeof body?.detail === "string") return body.detail;
+    return userMessage(res.status, body?.detail);
   } catch {
     // el cuerpo no era JSON, seguimos con el mensaje genérico
   }
-  return `Error inesperado (HTTP ${res.status}).`;
+  return statusMessage(res.status);
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -60,9 +61,9 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(504, "La API tardó demasiado en responder. Inténtalo de nuevo.");
+      throw new ApiError(504, TIMEOUT_ERROR_MESSAGE);
     }
-    throw err;
+    throw new ApiError(0, CONNECTION_ERROR_MESSAGE);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -72,7 +73,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(res.status, await readErrorDetail(res));
   }
 
-  return res.json();
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new ApiError(res.status, GENERIC_ERROR_MESSAGE); // respuesta que no es JSON
+  }
 }
 
 // Caché en memoria de la lista de productos: evita repetir la consulta al

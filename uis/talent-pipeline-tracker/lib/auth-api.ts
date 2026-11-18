@@ -1,4 +1,5 @@
 import { clearToken, getToken, setToken } from "./auth-storage";
+import { CONNECTION_ERROR_MESSAGE, GENERIC_ERROR_MESSAGE, statusMessage, userMessage } from "./http-errors";
 
 export type Role = "admin" | "manager" | "user";
 
@@ -53,18 +54,36 @@ function getAuthApiBaseUrl(): string {
 	return baseUrl;
 }
 
+/** `fetch` que convierte un fallo de red en un error legible en vez de «Failed to fetch». */
+async function safeFetch(request: () => Promise<Response>): Promise<Response> {
+	try {
+		return await request();
+	} catch {
+		throw new AuthApiError(0, CONNECTION_ERROR_MESSAGE);
+	}
+}
+
+/** Lee el JSON de una respuesta correcta; si no es JSON válido, mensaje genérico. */
+async function parseJsonBody<T>(res: Response): Promise<T> {
+	try {
+		return (await res.json()) as T;
+	} catch {
+		throw new AuthApiError(res.status, GENERIC_ERROR_MESSAGE);
+	}
+}
+
 async function parseErrorDetail(res: Response): Promise<{ message: string; fieldErrors?: Record<string, string> }> {
 	let body: unknown;
 	try {
 		body = await res.json();
 	} catch {
-		return { message: `Error inesperado (HTTP ${res.status}).` };
+		return { message: statusMessage(res.status) };
 	}
 
 	const detail = (body as { detail?: unknown })?.detail;
 
 	if (typeof detail === "string") {
-		return { message: detail };
+		return { message: userMessage(res.status, detail) };
 	}
 
 	if (Array.isArray(detail)) {
@@ -79,36 +98,36 @@ async function parseErrorDetail(res: Response): Promise<{ message: string; field
 		return { message: "Revisa los campos del formulario.", fieldErrors };
 	}
 
-	return { message: `Error inesperado (HTTP ${res.status}).` };
+	return { message: statusMessage(res.status) };
 }
 
 /** Llamada de auth pública (login/registro): sin token, sin redirect automático en 401/400. */
 async function publicAuthRequest<T>(path: string, body: unknown): Promise<T> {
-	const res = await fetch(`${getAuthApiBaseUrl()}${path}`, {
+	const res = await safeFetch(() => fetch(`${getAuthApiBaseUrl()}${path}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
-	});
+	}));
 
 	if (!res.ok) {
 		const { message, fieldErrors } = await parseErrorDetail(res);
 		throw new AuthApiError(res.status, message, fieldErrors);
 	}
 
-	return res.json();
+	return parseJsonBody<T>(res);
 }
 
 /** Llamada de auth protegida: adjunta el token y limpia sesión + redirige a /login en 401. */
 async function protectedAuthRequest<T>(path: string, options?: RequestInit): Promise<T> {
 	const token = getToken();
-	const res = await fetch(`${getAuthApiBaseUrl()}${path}`, {
+	const res = await safeFetch(() => fetch(`${getAuthApiBaseUrl()}${path}`, {
 		...options,
 		headers: {
 			"Content-Type": "application/json",
 			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			...(options?.headers ?? {}),
 		},
-	});
+	}));
 
 	if (res.status === 401) {
 		clearToken();
@@ -123,7 +142,7 @@ async function protectedAuthRequest<T>(path: string, options?: RequestInit): Pro
 		throw new AuthApiError(res.status, message, fieldErrors);
 	}
 
-	return res.json();
+	return parseJsonBody<T>(res);
 }
 
 export async function login(email: string, password: string): Promise<string> {

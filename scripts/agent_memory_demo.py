@@ -28,11 +28,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 load_dotenv(REPO_ROOT / ".env")
 
+from _cli import fail, reason  # noqa: E402
 from agent.graph import get_agent_graph  # noqa: E402
 from agent.memory.schemas import AuditEvent  # noqa: E402
 from agent.memory.store import PostgresMemoryStore  # noqa: E402
@@ -90,10 +92,24 @@ def _reset_demo_facts(store: PostgresMemoryStore) -> int:
     return len(demo)
 
 
+def _run(question: str, *args, **kwargs):
+    """`run_agent` con un error legible si el LLM, Qdrant, el MCP o la BD no responden."""
+    try:
+        return run_agent(question, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — cualquier nodo caído; se informa y se termina con código 1
+        fail(f"el agente falló con «{question[:60]}» ({reason(exc)}). ¿Docker, Qdrant y el MCP están en marcha?")
+
+
 def main() -> None:
-    graph = get_agent_graph()
-    store = PostgresMemoryStore()
-    reset = _reset_demo_facts(store)
+    try:
+        graph = get_agent_graph()
+    except Exception as exc:  # noqa: BLE001 — error estructural del grafo o de su configuración
+        fail(f"no se pudo compilar el grafo del agente ({reason(exc)}).")
+    try:
+        store = PostgresMemoryStore()
+        reset = _reset_demo_facts(store)
+    except (SQLAlchemyError, KeyError, RuntimeError) as exc:  # sin BD o sin DATABASE_URL
+        fail(f"no se pudo preparar la memoria demo en la base de datos ({reason(exc)}).")
     lines = [
         "# Evidencia: memoria del agente (Hito 8 · Parte 1)",
         "",
@@ -107,11 +123,11 @@ def main() -> None:
 
     for cycle, msgs in CYCLES.items():
         facts_before = {f.id for f in store.active_facts()}
-        first = run_agent(msgs["proposal"], graph=graph, user_id=SUPPORT_A)
+        first = _run(msgs["proposal"], graph=graph, user_id=SUPPORT_A)
         conv = first.conversation_id
-        second = run_agent(msgs["decision"], graph=graph, conversation_id=conv, user_id=SUPPORT_A)
+        second = _run(msgs["decision"], graph=graph, conversation_id=conv, user_id=SUPPORT_A)
         facts_after = {f.id for f in store.active_facts()}
-        third = run_agent(msgs["later"], graph=graph, user_id=SUPPORT_B)
+        third = _run(msgs["later"], graph=graph, user_id=SUPPORT_B)
 
         lines += [
             f"## Ciclo {'aprobado' if cycle == 'approved' else 'rechazado'}",
@@ -153,12 +169,15 @@ def main() -> None:
     lines += ["## Interacciones que no generan propuesta", "",
               "| Mensaje | ¿Propuesta? |", "|---|---|"]
     for i, message in enumerate(NOT_MEMORABLE, start=1):
-        result = run_agent(message, graph=graph, user_id=SUPPORT_A)
+        result = _run(message, graph=graph, user_id=SUPPORT_A)
         _save(f"not-memorable-{i}", result)
         lines.append(f"| {message} | {'sí (revisar)' if result.memory_proposal else 'no'} |")
     lines.append("")
 
-    EVIDENCE.write_text("\n".join(lines), encoding="utf-8")
+    try:
+        EVIDENCE.write_text("\n".join(lines), encoding="utf-8")
+    except OSError as exc:
+        fail(f"no se pudo escribir la evidencia en {EVIDENCE} ({reason(exc)}).")
     print(f"Evidencia escrita en {EVIDENCE.relative_to(REPO_ROOT)}")
 
 

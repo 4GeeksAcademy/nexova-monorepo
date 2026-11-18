@@ -1,5 +1,6 @@
 import { getToken } from "./auth-storage";
 import { handleSessionExpired } from "./session";
+import { statusMessage } from "./http-errors";
 
 /**
  * Cliente de la consulta a la base de conocimiento (`POST /knowledge/query`,
@@ -38,7 +39,7 @@ async function readErrorDetail(res: Response): Promise<string> {
     return "La base de conocimiento no está disponible en este momento. Inténtalo de nuevo en unos minutos.";
   }
   if (res.status === 422) return "La pregunta no es válida (entre 3 y 1000 caracteres).";
-  return `Error inesperado (HTTP ${res.status}).`;
+  return statusMessage(res.status);
 }
 
 /** Envía la pregunta y devuelve la respuesta generada. Lanza `KnowledgeError` si falla. */
