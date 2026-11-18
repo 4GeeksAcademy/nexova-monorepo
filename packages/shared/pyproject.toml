@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexova-shared"
+version = "0.1.0"
+description = "Lógica de dominio compartida entre la API y los scripts de Nexova."
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["nexova_shared*"]

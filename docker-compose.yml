@@ -20,6 +20,8 @@ services:
     volumes:
       - ./services/api:/app
       - ./packages/incidents-analyzer:/packages/incidents-analyzer:ro
+      # Dominio compartido del gestor de incidencias (nexova_shared).
+      - ./packages/shared:/packages/shared:ro
       - ./docs/telemetry:/docs/telemetry:ro
       - ./data/pipelines:/data/pipelines:ro
       - ./data/process:/data/process:ro

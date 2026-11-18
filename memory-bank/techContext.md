@@ -112,3 +112,9 @@
   - **Pub/sub.** `ChatHub` en memoria, una cola acotada por conexión, válido para un solo proceso de uvicorn; con varios workers haría falta Redis pub/sub detrás del protocolo `Hub`.
   - **Cliente.** El navegador se conecta directo a la API (`NEXT_PUBLIC_CHAT_WS_URL` o `ws(s)://<host>:8000`); solo `POST /api/chat/sessions` pasa por proxy. Cierres `4401`/`4403`/`4404`/`4408`.
 
+- Gestor de incidencias centralizado (README + BRIEFING, `services/api/incident_manager/`):
+  - **Convivencia, no reemplazo.** Módulo independiente del analizador de incidencias (`app/`, tabla `incident`, ids `NXV-######`, usado por agente, MCP y RFP): tabla propia `incident_records` y router en `/api/incident-manager` (constante `ROUTER_PREFIX`). Nada del módulo anterior se modifica; migrarlo y devolver el prefijo `/api/incidents` queda para cuando se retire.
+  - **Dominio compartido.** `packages/shared/nexova_shared` es la única fuente de verdad de sedes, categorías, estados, orígenes, transiciones y mapeo CSV → modelo; API y script de seed importan de ahí y la validación de filas reutiliza `incidents_analyzer.validate_record`. Se hace importable por fallback de `sys.path` (en Docker, `/packages/shared`; si falta, `main.py` arranca sin el router y avisa).
+  - **Errores aislados.** `ManagerRoute` (`route_class` del router) responde 400 con `{"errors":[{"field","message"}]}` y 500 genérico solo en sus rutas; no hay handlers globales nuevos, así que el resto de la API sigue con 422.
+  - **Integridad.** `CHECK` en base de datos para status/origin/category/branch y título/descripción no vacíos; `incident_seed_log` guarda el `ticket_id` del CSV para la idempotencia sin almacenarlo en el modelo. Acceso solo staff (`require_staff`).
+  - **Backoffice.** Cliente tipado con validación en runtime (`lib/incident-manager.ts`), dominio y validación de formulario puros (`lib/incident-manager-domain.ts`, probados con vitest) y proxies propios en `app/api/incident-manager/*`.
