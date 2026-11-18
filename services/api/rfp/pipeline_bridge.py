@@ -29,6 +29,7 @@ from rfp_intake import (  # noqa: E402
     register_upload,
     run_intake,
 )
+from rfp_intake.events import EVENT_TICKET_CREATED, STREAM_KEY as EVENTS_STREAM_KEY  # noqa: E402
 from rfp_intake.intake import MAX_PDF_BYTES  # noqa: E402
 from rfp_drafting import HandoffNotReady, run_drafting, validate_handoff  # noqa: E402
 from rfp_approval import (  # noqa: E402
@@ -68,6 +69,8 @@ def run_branch_paused(ticket_id: str, department_id: str, store) -> bool:
 
 
 __all__ = [
+    "EVENTS_STREAM_KEY",
+    "EVENT_TICKET_CREATED",
     "ApprovalDecision",
     "ApprovalNotPending",
     "ApprovalNotReady",

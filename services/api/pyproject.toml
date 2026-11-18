@@ -47,6 +47,7 @@ packages = ["telemetry", "reporting", "tasks", "knowledge", "agent", "rfp"]
 
 [dependency-groups]
 dev = [
+    "fakeredis>=2.40.0",
     "pytest>=9.1.1",
 ]
 ml = [

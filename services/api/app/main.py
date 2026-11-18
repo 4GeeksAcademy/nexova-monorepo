@@ -65,8 +65,9 @@ _ORDER_VALIDATION_TELEMETRY = {
 }
 
 # La propia ingesta y el reporte de telemetría no emiten api_request_*: cada lote
-# guardado (o cada consulta del reporte) generaría otra fila sobre sí mismo.
-_TELEMETRY_EXCLUDED_ROUTES = frozenset({"/telemetry/events", "/telemetry/report"})
+# guardado (o cada consulta del reporte) generaría otra fila sobre sí mismo. El
+# stream SSE de RFPs (`/rfp/events`) tampoco: es una conexión larga, no una petición.
+_TELEMETRY_EXCLUDED_ROUTES = frozenset({"/telemetry/events", "/telemetry/report", "/rfp/events"})
 
 
 def _emit_telemetry_in_background(event_type: str, **kwargs: Any) -> None:

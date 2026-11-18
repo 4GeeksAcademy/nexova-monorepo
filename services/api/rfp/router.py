@@ -4,6 +4,9 @@ persistencia y el guardado del PDF viven en `data/pipelines/rfp_intake/`.
 
 - `POST /rfp/tickets`: guarda el PDF en `data/raw/rfp/`, crea el ticket en
   `analizando`, encola `rfp.run_intake` en Celery y responde 202 sin esperar.
+- `GET /rfp/events`: stream SSE (`text/event-stream`) con el evento
+  `rfp_ticket_created` cuando un documento se clasifica como RFP válida;
+  mismo JWT que el resto, `Last-Event-ID` para reanudar (ver `rfp/events.py`).
 - `GET /rfp/tickets`: tickets recientes (la UI hace poll mientras haya alguno
   en `analizando`).
 - `POST /rfp/tickets/{ticket_id}/drafts`: (re)lanza la Parte 2 (borradores +
@@ -34,11 +37,19 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from models import User
 from rfp import pipeline_bridge
+from rfp.events import (
+    SSE_HEADERS,
+    EventReader,
+    make_event_reader,
+    parse_last_event_id,
+    stream_events,
+)
 from rfp.schemas import (
     ApprovalDecisionIn,
     DepartmentId,
@@ -142,6 +153,28 @@ def regenerate_drafts(ticket_id: str, _: User = Depends(require_internal_user)) 
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="La cola de tareas no está disponible.") from exc
     return RfpDraftingAccepted(ticket_id=ticket_id, status=ticket["status"], task_id=task.id)
+
+
+@router.get(
+    "/events",
+    summary="Stream SSE de eventos de RFP (rfp_ticket_created)",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/event-stream": {}}, "description": "Stream SSE"}},
+)
+async def rfp_events(
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    _user: User = Depends(require_internal_user),
+    reader: EventReader | None = Depends(make_event_reader),
+) -> StreamingResponse:
+    if reader is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Notificaciones en tiempo real no disponibles."
+        )
+    return StreamingResponse(
+        stream_events(reader, parse_last_event_id(last_event_id)),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
 
 
 @router.get("/tickets", response_model=list[RfpTicketSummary], summary="Tickets de RFP recientes")
