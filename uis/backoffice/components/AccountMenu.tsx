@@ -32,7 +32,7 @@ export default function AccountMenu({ variant = "dark" }: { variant?: "dark" | "
         onClick={logout}
         className={`whitespace-nowrap rounded-lg border px-3 py-1 font-medium transition ${classes.pill}`}
       >
-        Cerrar sesion
+        Cerrar sesión
       </button>
     </div>
   );
