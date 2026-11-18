@@ -8,7 +8,7 @@ export default function DashboardLayout({
   return (
     <AppShell
       eyebrow="Nexova · Dirección"
-      subtitle="Control financiero consolidado y acceso a cada área"
+      subtitle="Estado operativo consolidado y acceso a cada área"
       showBackLink={false}
     >
       {children}
