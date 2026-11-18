@@ -29,7 +29,10 @@
 
 - Notificaciones en tiempo real de RFPs (SSE), Hito 10 · Parte 1 (rama `feature/sse-notifications`, sobre `main`): al clasificar un documento como RFP válida (fin de `extract_metadata`, en el worker) se publica `rfp_ticket_created` en un Redis Stream; `GET /rfp/events` lo sirve como `text/event-stream` con el mismo JWT, y la bandeja `/rfp` lo consume con `fetch` + `ReadableStream`, reconexión con backoff y `Last-Event-ID`, deduplicando por `ticket_id`. Sin llamadas a modelos. Diseño y respuestas a las preguntas del README en `docs/rfp/rfp-sse-design.md`.
 
+- Chat en vivo por WebSocket con el agente de soporte, Hito 10 · Parte 2 (rama `feature/websocket-chat`, sobre `feature/sse-notifications`): `WS /chat/ws/{session_id}` con el mismo JWT (`?token=` o primer frame), streaming de tokens por el modo `custom` de LangGraph (`agent/streaming.py`, mismo `build_graph` con generación `stream=True`), interrupción que aborta de verdad la generación (cierra el stream del modelo), parcial `interrupted` y turno nuevo, pub/sub en memoria por sesión (`chat.<session_id>`) y rehidratación con `session_snapshot` desde SQLite. La página `/knowledge` pasa a ser el "Chat de soporte". Diseño y respuestas en `docs/chat/chat-ws-design.md`.
+
 ## Pasos previstos
+- Chat WebSocket: abrir el PR `feature/websocket-chat` (apilado sobre `feature/sse-notifications`; rebase sobre `main` cuando se mergee la Parte 1) con las respuestas de `docs/chat/chat-ws-design.md`. Verificado con tests (pytest, vitest), lint y `next build`; pendiente la prueba manual con `docker compose up` y el LLM real (confirmar que el proveedor de `LLM_BASE_URL` soporta `stream=True`).
 - SSE de RFPs: abrir el PR `feature/sse-notifications` con las respuestas de `docs/rfp/rfp-sse-design.md`. Verificado con tests (pytest, vitest) y `next build`; pendiente la prueba manual con `docker compose up` (dos ventanas y corte de red). Parte 2 (chat WebSocket) en `real-time-communication/`. Opcional no hecho: `kpi_threshold_alert` / `support_ticket_escalated` sobre el mismo stream.
 - RFPs Parte 3: la migración 010 ya está aplicada en el Supabase compartido (cualquier otro entorno la necesita antes de desplegar). Verificado en Docker (NubeSoft `terminado`). Pendiente: cuando el proveedor del LLM recupere cuota, ejecutar `scripts/rfp_approve.py resume RFP-EA6FA138 --department seleccion` (ronda de cambios pedida desde la UI) y aprobar ambas secciones de Vantex hasta `terminado`. Abrir el PR `feature/rfp-approval-completion` con el ejemplo de `scripts/rfp_e2e.py` y `docs/rfp/rfp-approval-evidence.md`.
 - RFPs Parte 2: abrir el PR `feature/rfp-response-generation` (apilado sobre `feature/rfp-intake`) con los ejemplos de `docs/rfp/rfp-drafting-evidence.md`. La migración 009 ya está aplicada en el Supabase compartido; cualquier otro entorno la necesita antes de desplegar (sin esas columnas los endpoints `/rfp` fallan).
@@ -76,6 +79,11 @@
   - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
 
 ## Historial de Avances
+- **[2026-11-17] Chat en vivo por WebSocket con el agente de soporte (Hito 10 · Parte 2, rama `feature/websocket-chat`, creada desde `feature/sse-notifications`):**
+  - **Decisiones con el usuario:** guard de salida sin cambios con reemplazo al final (`generation_completed.content`); `/knowledge` pasa a ser el chat; el turno tras una interrupción recibe pregunta anterior + corrección; rama apilada sobre la Parte 1.
+  - **Backend:** `services/api/chat/` (contrato, store SQLite, hub pub/sub, `SessionRunner`, REST + WS) y `agent/streaming.py` + `stream_agent` (refactor sin cambio de comportamiento de `run_agent`: cierre del trace en `_finish_run`). Paquete `chat` registrado en `pyproject.toml`.
+  - **Frontend:** `lib/chat-protocol.ts`, `chat-socket.ts`, `chat-api.ts`, `useChatSession.ts`, `components/chat/ChatPanel.tsx`; menú "Chat de soporte".
+  - **Verificado:** 21 tests nuevos en `tests/pipelines/test_chat_ws.py` (475 en total, 5 ejecuciones seguidas sin fallos intermitentes) y 9 en `uis/backoffice/tests/chat.test.ts`; `tsc`, lint (solo los 3 errores previos) y `next build`. Sin probar todavía con el LLM real ni en Docker.
 - **[2026-11-16] Aprobación humana y cierre del documento de RFP (Hito 9 · Parte 3, rama `feature/rfp-approval-completion`, creada desde `feature/rfp-response-generation`):**
   - **Decisiones con el usuario:**
     - Un hilo del checkpointer por departamento (`rfp-{ticket_id}:{department_id}`) y checkpointer Postgres.

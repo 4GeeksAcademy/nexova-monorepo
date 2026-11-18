@@ -7,7 +7,9 @@ token OAuth (`agent.tools.mcp_client`), no con el JWT de quien llama.
 
 from __future__ import annotations
 
+import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -76,27 +78,91 @@ def run_agent(
                         conversation_id=conversation_id,
                         guardrails=[e.to_dict() for e in guard_log.events])
             raise
-        error = state.get("error")
-        answer = None if error else _compose_answer(state.get("memory_notice"), state.get("answer"))
-        memory = {
-            "facts_used": [f["id"] for f in state.get("memory_facts") or []],
-            "decision": state.get("memory_decision"),
-            "proposal": state.get("memory_proposal"),
-            "blocked": state.get("memory_blocked"),
-        }
-        guard = state.get("guard") or {}
-        guard_events = tuple(e.to_dict() for e in guard_log.events)
-        trace_path = tracer.save(
-            status="rejected" if error else "completed",
-            final_answer=answer,
-            error=error,
-            route=state.get("route"),
-            sources_used=state.get("sources_used"),
-            conversation_id=conversation_id,
-            memory=memory if any(memory.values()) else None,
-            guardrails=list(guard_events) if (guard or guard_events) else None,
-            guard=guard or None,
-        )
+        return _finish_run(state, run_id=run_id, tracer=tracer, guard_log=guard_log,
+                           conversation_id=conversation_id)
+
+
+def stream_agent(
+    question: str,
+    *,
+    on_stream: Callable[[dict[str, Any]], None],
+    abort: threading.Event,
+    graph: CompiledStateGraph | None = None,
+    run_id: str | None = None,
+    conversation_id: str | None = None,
+    user_id: str | None = None,
+    tenant: Tenant = INTERNAL_TENANT,
+) -> AgentRunResult:
+    """Como `run_agent`, pero entrega los fragmentos de la generación mientras llegan.
+
+    Recorre el grafo del chat (`agent.streaming.get_chat_agent_graph`) con
+    `stream_mode=["custom", "values"]`: cada `{"token": …}` / `{"reset": True}`
+    se pasa a `on_stream` y el último `values` es el estado final. Si `abort` se
+    levanta, la generación se corta (stream del modelo cerrado), el trace queda
+    como `interrupted` y se lanza `GenerationAborted`."""
+    from agent.streaming import GenerationAborted, TurnControl, get_chat_agent_graph, turn_scope
+
+    compiled = graph or get_chat_agent_graph()
+    run_id = run_id or str(uuid.uuid4())
+    conversation_id = conversation_id or str(uuid.uuid4())
+    initial: dict[str, Any] = {
+        "question": question,
+        "conversation_id": conversation_id,
+        "user_id": user_id,
+        "tenant": tenant.as_state(),
+    }
+    with (start_run(run_id, question) as tracer,
+          collect_events(run_id, conversation_id, user_id) as guard_log,
+          turn_scope(TurnControl(abort=abort))):
+        state: dict[str, Any] = {}
+        try:
+            for mode, chunk in compiled.stream(
+                initial, config=run_config(run_id), stream_mode=["custom", "values"]
+            ):
+                if abort.is_set():
+                    raise GenerationAborted()
+                if mode == "custom":
+                    on_stream(chunk)
+                else:
+                    state = chunk
+        except GenerationAborted:
+            tracer.save(status="interrupted", final_answer=None, error=None,
+                        conversation_id=conversation_id,
+                        guardrails=[e.to_dict() for e in guard_log.events])
+            raise
+        except Exception as exc:
+            tracer.save(status="failed", final_answer=None, error=type(exc).__name__,
+                        conversation_id=conversation_id,
+                        guardrails=[e.to_dict() for e in guard_log.events])
+            raise
+        return _finish_run(state, run_id=run_id, tracer=tracer, guard_log=guard_log,
+                           conversation_id=conversation_id)
+
+
+def _finish_run(state: dict[str, Any], *, run_id: str, tracer: Any, guard_log: Any,
+                conversation_id: str) -> AgentRunResult:
+    """Persiste el trace de una corrida terminada y arma el resultado."""
+    error = state.get("error")
+    answer = None if error else _compose_answer(state.get("memory_notice"), state.get("answer"))
+    memory = {
+        "facts_used": [f["id"] for f in state.get("memory_facts") or []],
+        "decision": state.get("memory_decision"),
+        "proposal": state.get("memory_proposal"),
+        "blocked": state.get("memory_blocked"),
+    }
+    guard = state.get("guard") or {}
+    guard_events = tuple(e.to_dict() for e in guard_log.events)
+    trace_path = tracer.save(
+        status="rejected" if error else "completed",
+        final_answer=answer,
+        error=error,
+        route=state.get("route"),
+        sources_used=state.get("sources_used"),
+        conversation_id=conversation_id,
+        memory=memory if any(memory.values()) else None,
+        guardrails=list(guard_events) if (guard or guard_events) else None,
+        guard=guard or None,
+    )
     return AgentRunResult(
         run_id=run_id,
         answer=answer,
