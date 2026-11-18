@@ -91,6 +91,13 @@
   - **Riesgo:** `mcpauth` 0.2.0b1 es beta (única versión con modo resource server).
 
 ## Historial de Avances
+- **[2026-11-18] Batería de pruebas unitarias de autenticación (ticket AUTH-088, rama `feature/error-handling-audit`):**
+  - **Decisiones con el usuario:** frontend con Vitest (ya existente) en lugar de Jest; extras API-042 y FE-019 fuera de esta entrega.
+  - **Backend:** `tests/auth/` (107 tests: login, registro, `/auth/me`, forgot/reset/change-password, JWT, tokens de reset, `RateLimiter`) con `conftest.py` propio (TinyDB en `tmp_path`, telemetría y email grabados, `RESEND_API_KEY` con `setdefault`). `pytest-cov` añadido al grupo `dev` de `services/api`. Cobertura 100 % en `routes/auth.py`, `security.py` y `password_resets.py`.
+  - **Frontend:** `uis/backoffice/tests/auth-storage.test.ts` y `auth-api.test.ts` (19 tests).
+  - **Bug corregido:** el registro recortaba los espacios de la contraseña y login/reset/cambio no; `LoginRequest`, `ResetPasswordRequest` y `ChangePasswordRequest` ahora usan `str_strip_whitespace` (`services/api/models.py`).
+  - **Documentación:** `TESTING.md` (plan, casos sugeridos por IA, bug, cobertura, comandos). El comando es `uv run --project services/api pytest tests/auth` (no hay `pyproject` en la raíz).
+  - **Verificado:** `tests/` 733 passed + 2 skipped (antes 626 + 2), vitest 66, `tsc` limpio, prueba de sensibilidad sobre la expiración del JWT. `services/api/data/*.json` intactos. **No verificado:** `mcps/nexova-tools/tests` (otro entorno `uv`), ni lint del backoffice tras los tests nuevos.
 - **[2026-11-18] Auditoría de gestión de errores (rama `feature/error-handling-audit`, Parte B):**
   - **Informe** `docs/error-handling-audit.md` con hallazgos por severidad, corrección y pendientes.
   - **Frontend:** `lib/http-errors.ts`, `lib/backend-fetch.ts` (26 proxies), `components/ErrorNotice.tsx` y reintento en analizador, inventario (4 pantallas), reporte, telemetría, bandeja de RFP y listado del tracker; `error.tsx`/`global-error.tsx`/`not-found.tsx`/`loading.tsx` en backoffice, tracker y website; `api.ts` del tracker protegido contra red caída y JSON inválido; `auth-api` de ambas apps.

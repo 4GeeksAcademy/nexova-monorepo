@@ -49,6 +49,7 @@ packages = ["telemetry", "reporting", "tasks", "knowledge", "agent", "rfp", "cha
 dev = [
     "fakeredis>=2.40.0",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
 ]
 ml = [
     "matplotlib>=3.11.2",
