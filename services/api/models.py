@@ -175,6 +175,10 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+    # Misma normalización que `UserCreate`: el registro guarda la contraseña sin espacios
+    # en los extremos, así que el login debe compararla igual (AUTH-088).
+    model_config = ConfigDict(str_strip_whitespace=True)
+
 
 class Token(BaseModel):
     access_token: str
@@ -189,10 +193,14 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=8)
 
+    model_config = ConfigDict(str_strip_whitespace=True)  # coherente con `UserCreate` y `LoginRequest`
+
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
+
+    model_config = ConfigDict(str_strip_whitespace=True)  # coherente con `UserCreate` y `LoginRequest`
 
 
 class User(BaseModel):
