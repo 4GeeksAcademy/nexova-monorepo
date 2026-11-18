@@ -29,7 +29,7 @@ export type ServerEvent =
   | { event: "token_chunk"; sessionId: string; messageId: string; token: string; sequence: number }
   | { event: "generation_interrupted"; sessionId: string; messageId: string }
   | { event: "generation_completed"; sessionId: string; messageId: string; content?: string }
-  | { event: "error"; code: string; message: string; messageId?: string };
+  | { event: "error"; code: string; message: string; messageId?: string; retryAfter?: number };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -106,9 +106,18 @@ export function parseServerEvent(raw: unknown): ServerEvent | null {
       const code = str(data, "code");
       const message = str(data, "message");
       if (!code || message === null) return null;
-      return messageId
-        ? { event: "error", code, message, messageId }
-        : { event: "error", code, message };
+      // `retry_after` solo llega con `rate_limited` (presupuesto del LLM agotado).
+      const retryAfter =
+        typeof data.retry_after === "number" && Number.isInteger(data.retry_after) && data.retry_after > 0
+          ? data.retry_after
+          : undefined;
+      return {
+        event: "error",
+        code,
+        message,
+        ...(messageId ? { messageId } : {}),
+        ...(retryAfter !== undefined ? { retryAfter } : {}),
+      };
     }
     default:
       return null;
@@ -118,7 +127,7 @@ export function parseServerEvent(raw: unknown): ServerEvent | null {
 export interface ChatState {
   messages: ChatMessage[];
   sessionStatus: SessionStatus;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; retryAfter?: number } | null;
 }
 
 export const INITIAL_CHAT_STATE: ChatState = { messages: [], sessionStatus: "active", error: null };
@@ -215,7 +224,14 @@ export function chatReducer(state: ChatState, event: ServerEvent): ChatState {
     }
 
     case "error":
-      return { ...state, error: { code: event.code, message: event.message } };
+      return {
+        ...state,
+        error: {
+          code: event.code,
+          message: event.message,
+          ...(event.retryAfter !== undefined ? { retryAfter: event.retryAfter } : {}),
+        },
+      };
   }
 }
 

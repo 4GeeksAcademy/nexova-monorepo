@@ -12,6 +12,8 @@ Nunca se devuelven chunks, puntuaciones ni trazas de error: solo
   personal interno) sale SIEMPRE del usuario autenticado, nunca del cuerpo.
 - `GET /agent/guardrails/summary`: cuántas veces se activó cada guardrail
   (solo personal interno: admin / manager).
+- `GET /agent/decisions`: últimas decisiones del agente (qué hizo y por qué),
+  sin preguntas ni respuestas (solo personal interno).
 """
 
 from __future__ import annotations
@@ -21,12 +23,14 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from agent.audit import read_decisions
 from agent.guardrails.events import read_events, summarize
 from agent.guardrails.tenancy import tenant_for_user
 from agent.nodes import EMPTY_QUESTION_ERROR, EMPTY_QUESTION_MESSAGE
 from agent.runner import run_agent
 from agent.schemas import (
     AgentQueryRequest,
+    AgentDecision,
     AgentQueryResponse,
     GuardrailOut,
     GuardrailSummary,
@@ -35,6 +39,7 @@ from agent.schemas import (
     _UUID_PATTERN,
 )
 from models import User
+from rate_limit import enforce_llm_budget
 from security import get_current_user
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -52,6 +57,7 @@ def query_agent(
     # `user_id` identifica quién aprueba cada hecho (auditoría) y quién puede
     # decidir la propuesta pendiente de la conversación; `tenant` limita los
     # tickets a su empresa cliente.
+    enforce_llm_budget("agent", current_user.id)  # 429 antes de tocar el LLM
     try:
         result = run_agent(
             payload.question,
@@ -104,3 +110,14 @@ def guardrails_summary(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo personal interno de Nexova.")
     return GuardrailSummary(**summarize(read_events(), since=since, until=until,
                                         conversation_id=conversation_id))
+
+
+@router.get("/decisions", response_model=list[AgentDecision])
+def agent_decisions(
+    limit: int = Query(default=50, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+) -> list[AgentDecision]:
+    """Registro de decisiones (informe NIST · Detect): de la más reciente a la más antigua."""
+    if not tenant_for_user(current_user).is_staff:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo personal interno de Nexova.")
+    return [AgentDecision.model_validate(record) for record in read_decisions(limit)]

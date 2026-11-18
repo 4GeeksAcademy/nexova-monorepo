@@ -7,7 +7,7 @@ propuesta de memoria pendiente (si la hay).
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -66,3 +66,28 @@ class GuardrailSummary(BaseModel):
     since: str | None = None
     until: str | None = None
     conversation_id: str | None = None
+
+
+class AgentDecision(BaseModel):
+    """Una línea del registro de decisiones (`agent/audit.py`); sin pregunta ni respuesta."""
+
+    ts: str
+    run_id: str
+    conversation_id: str | None = None
+    user_id: str | None = None
+    tenant: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    outcome: str
+    reason: str
+    guard_input: dict[str, Any] | None = None
+    route: dict[str, Any] | None = None
+    sources_used: list[str] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    memory: dict[str, Any] = Field(default_factory=dict)
+    output_blocked: bool = False
+    output_rules: list[str] = Field(default_factory=list)
+    nodes: list[str] = Field(default_factory=list)
+    latency_ms: float | None = None
+    question_sha256: str | None = None
+    question_chars: int = 0
+    answer_chars: int = 0

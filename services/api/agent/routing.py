@@ -9,6 +9,15 @@ gestor de incidentes), tool de inventario (stock en vivo) o varias.
    devuelve algo inválido (patrón de ticket, palabras de stock…).
 
 `method` ("llm" / "rules") queda en el estado y en el trace.
+
+Validación de la llamada a tools (informe NIST · Protect): el JSON del modelo es
+un *plan de llamada* a las tools, así que nunca se ejecuta sin pasar por un
+contrato cerrado. `RouteDecision` rechaza claves desconocidas (`extra="forbid"`:
+el modelo no puede "inventar" una acción como `update_status`), exige
+`NXV-NNNNNN`, enums cerrados de estado y categoría, y una allowlist de caracteres
+en `client_company` / `product`. Cualquier violación → reglas deterministas y un
+evento `routing / invalid_router_output`. La tenancy la sigue forzando el código
+(`agent/nodes.py`) y las tools son de solo lectura.
 """
 
 from __future__ import annotations
@@ -19,7 +28,7 @@ import re
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from agent.tools.tickets import TicketCategory, TicketStatus
 
@@ -40,15 +49,22 @@ _PRODUCT_RE = re.compile(
 _STATUS_WORDS = {"OPEN": r"abiert", "CLOSED": r"cerrad", "DISCARDED": r"descartad"}
 
 
+# Letras (con tildes), dígitos, espacios y puntuación de nombres de empresa o producto.
+_SAFE_TEXT = r"^[\w .,&'()/+-]{1,100}$"
+_LOOSE_TICKET_ID_RE = re.compile(r"^\s*(?:NXV[-\s]?)?\d{1,6}\s*$", re.IGNORECASE)
+
+
 class RouteDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     rag: bool = False
     tickets: bool = False
     inventory: bool = False
     ticket_id: str | None = Field(default=None, pattern=r"^NXV-\d{6}$")
     ticket_status: TicketStatus | None = None
     ticket_category: TicketCategory | None = None
-    client_company: str | None = Field(default=None, max_length=100)
-    product: str | None = Field(default=None, max_length=100)
+    client_company: str | None = Field(default=None, max_length=100, pattern=_SAFE_TEXT)
+    product: str | None = Field(default=None, max_length=100, pattern=_SAFE_TEXT)
     method: Literal["llm", "rules"] = "rules"
 
     @model_validator(mode="after")
@@ -64,6 +80,17 @@ def normalize_ticket_id(value: str | None) -> str | None:
         return None
     digits = re.sub(r"\D", "", value)
     return f"NXV-{int(digits):06d}" if digits else None
+
+
+def normalize_llm_ticket_id(value: object) -> object:
+    """Normaliza solo lo que YA parece un id (`NXV 482`, `482`). Cualquier otra cosa se
+    devuelve tal cual para que `RouteDecision` la rechace: quitar los no-dígitos de
+    `1' OR 1=1--` daría `NXV-000111`, un ticket real distinto del pedido."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and _LOOSE_TICKET_ID_RE.match(value):
+        return normalize_ticket_id(value)
+    return value
 
 
 def _find_ticket_id(question: str) -> str | None:
@@ -86,7 +113,7 @@ def classify_with_rules(question: str) -> RouteDecision:
         inventory=inventory,
         ticket_id=ticket_id,
         ticket_status=status,
-        product=product_match.group("product").strip() if product_match else None,
+        product=" ".join(product_match.group("product").split()) if product_match else None,
         method="rules",
     )
 
@@ -148,7 +175,7 @@ def classify_with_llm(question: str) -> RouteDecision:
         ],
     )
     data = _extract_json(completion.choices[0].message.content or "")
-    data["ticket_id"] = normalize_ticket_id(data.get("ticket_id"))
+    data["ticket_id"] = normalize_llm_ticket_id(data.get("ticket_id"))
     return RouteDecision.model_validate({**data, "method": "llm"})
 
 

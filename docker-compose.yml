@@ -60,6 +60,13 @@ services:
       - AGENT_MCP_TOKEN_URL=${AGENT_MCP_TOKEN_URL}
       - AGENT_MCP_CLIENT_ID=${AGENT_MCP_CLIENT_ID}
       - AGENT_MCP_CLIENT_SECRET=${AGENT_MCP_CLIENT_SECRET}
+      # Presupuesto de llamadas al LLM por usuario (informe NIST · Protect).
+      - LLM_RATE_LIMIT_PER_MINUTE=${LLM_RATE_LIMIT_PER_MINUTE:-10}
+      - LLM_RATE_LIMIT_PER_DAY=${LLM_RATE_LIMIT_PER_DAY:-200}
+      - CHAT_TURNS_PER_MINUTE=${CHAT_TURNS_PER_MINUTE:-10}
+      - RFP_UPLOADS_PER_HOUR=${RFP_UPLOADS_PER_HOUR:-20}
+      # Registro de decisiones del agente; vacío = services/api/data/agent/agent_decisions.jsonl.
+      - AGENT_DECISION_LOG=${AGENT_DECISION_LOG:-}
     depends_on:
       redis:
         condition: service_healthy

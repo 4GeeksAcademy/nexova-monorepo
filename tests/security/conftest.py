@@ -36,8 +36,7 @@ def isolated_users(tmp_path, monkeypatch):
     monkeypatch.setattr(password_resets, "DB_PATH", tmp_path / "password_resets.json")
     monkeypatch.setattr(auth, "log_telemetry_event", lambda *a, **k: None)
     monkeypatch.setattr(auth, "send_password_reset_email", lambda *a, **k: None)
-    for limiter in (rate_limit.login_failures, rate_limit.reset_requests,
-                    rate_limit.reset_attempts, rate_limit.password_changes):
+    for limiter in rate_limit.all_limiters():
         limiter.clear()
     yield
 
