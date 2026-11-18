@@ -288,7 +288,7 @@ export default function OutboundOrderForm({
       <button
         type="submit"
         disabled={isSubmitting || products.length === 0 || exceedsStock}
-        className="w-full rounded-full bg-teal-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isSubmitting ? "Registrando..." : "Registrar salida"}
       </button>

@@ -3,7 +3,41 @@ import {
   averageTicketResolutionTime,
   countCandidatesByStatus,
 } from "@hito2-logic/utils/transformations";
+import Link from "next/link";
 import SectionViewTracker from "@/components/SectionViewTracker";
+import { DASHBOARD_SECTIONS, UPCOMING_SECTIONS } from "@/lib/dashboard-sections";
+
+const CARD = "rounded-2xl border border-stone-300 bg-white/85 p-5 shadow-sm";
+
+interface KpiCardProps {
+  label: string;
+  value: string;
+  /** Contenido SVG (hijos de `<svg>`) del icono del indicador. */
+  icon: React.ReactNode;
+}
+
+function KpiCard({ label, value, icon }: KpiCardProps) {
+  return (
+    <article className={CARD}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
+        <span className="rounded-lg border border-stone-200 bg-stone-50 p-1.5 text-teal-700">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden="true"
+          >
+            {icon}
+          </svg>
+        </span>
+      </div>
+      <p className="mt-3 text-3xl font-medium tracking-tight text-stone-900">{value}</p>
+    </article>
+  );
+}
 
 export default function Home() {
   const mockCandidates: Candidate[] = [
@@ -90,117 +124,141 @@ export default function Home() {
   const statusRows = Object.entries(candidatesByStatus);
 
   return (
-    <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <section className="px-6 py-12">
       <SectionViewTracker section="dashboard" />
-      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_12px_40px_-30px_rgba(14,165,233,0.45)] backdrop-blur-xl">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Overview</p>
-        <h2 className="mt-2 text-3xl font-semibold text-slate-100 sm:text-4xl">
-          Dashboard Financiero
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm text-slate-300">
-          Vista inicial del backoffice con resultados de transformación ejecutados en
-          servidor usando utilidades compartidas del monorepo.
-        </p>
-      </header>
+      <div className="mx-auto w-full max-w-6xl">
+        <header className="mb-8">
+          <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Overview</p>
+          <h1 className="mt-2 text-3xl font-medium tracking-tight text-stone-900 sm:text-4xl">
+            Dashboard Financiero
+          </h1>
+          <p className="mt-3 max-w-2xl text-base leading-7 text-stone-600">
+            Vista inicial del backoffice con resultados de transformación ejecutados en
+            servidor usando utilidades compartidas del monorepo.
+          </p>
+        </header>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-[0_24px_40px_-36px_rgba(0,0,0,0.8)]">
-          <div className="flex items-start justify-between">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Candidatos</p>
-            <span className="rounded-lg border border-slate-700 bg-slate-950 p-1.5 text-slate-400">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="Candidatos"
+            value={String(mockCandidates.length)}
+            icon={
+              <>
                 <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="8.5" cy="7" r="4" />
                 <path d="M20 8v6" />
                 <path d="M23 11h-6" />
-              </svg>
-            </span>
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-slate-100">{mockCandidates.length}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-[0_24px_40px_-36px_rgba(0,0,0,0.8)]">
-          <div className="flex items-start justify-between">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Estados Detectados</p>
-            <span className="rounded-lg border border-slate-700 bg-slate-950 p-1.5 text-slate-400">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+              </>
+            }
+          />
+          <KpiCard
+            label="Estados detectados"
+            value={String(statusRows.length)}
+            icon={
+              <>
                 <path d="M3 3v18h18" />
                 <rect x="7" y="11" width="3" height="7" rx="1" />
                 <rect x="12" y="7" width="3" height="11" rx="1" />
                 <rect x="17" y="4" width="3" height="14" rx="1" />
-              </svg>
-            </span>
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-slate-100">{statusRows.length}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-[0_24px_40px_-36px_rgba(0,0,0,0.8)]">
-          <div className="flex items-start justify-between">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Tickets Soporte</p>
-            <span className="rounded-lg border border-slate-700 bg-slate-950 p-1.5 text-slate-400">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+              </>
+            }
+          />
+          <KpiCard
+            label="Tickets soporte"
+            value={String(mockTickets.length)}
+            icon={
+              <>
                 <path d="m9 11 3 3L22 4" />
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-            </span>
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-slate-100">{mockTickets.length}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-[0_24px_40px_-36px_rgba(0,0,0,0.8)]">
-          <div className="flex items-start justify-between">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Resolución Media</p>
-            <span className="rounded-lg border border-slate-700 bg-slate-950 p-1.5 text-slate-400">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+              </>
+            }
+          />
+          <KpiCard
+            label="Resolución media"
+            value={`${avgResolutionHours.toFixed(1)}h`}
+            icon={
+              <>
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3 3" />
-              </svg>
-            </span>
-          </div>
-          <p className="mt-3 text-3xl font-semibold text-slate-100">
-            {avgResolutionHours.toFixed(1)}h
-          </p>
-        </article>
-      </div>
+              </>
+            }
+          />
+        </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-[0_24px_40px_-36px_rgba(0,0,0,0.8)]">
-          <h3 className="text-sm font-semibold text-slate-100">Conteo por estado de candidato</h3>
-          <div className="mt-4 space-y-2">
-            {statusRows.map(([status, count]) => (
-              <div
-                key={status}
-                className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2"
-              >
-                <span className="text-sm text-slate-300">{status}</span>
-                <span className="text-sm font-semibold text-slate-100">{count}</span>
-              </div>
-            ))}
-          </div>
-        </article>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <article className={CARD}>
+            <h2 className="text-base font-medium text-stone-900">Conteo por estado de candidato</h2>
+            <ul className="mt-4 space-y-2">
+              {statusRows.map(([status, count]) => (
+                <li
+                  key={status}
+                  className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2"
+                >
+                  <span className="text-sm text-stone-700">{status}</span>
+                  <span className="text-sm font-semibold text-stone-900">{count}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
 
-        <article className="overflow-hidden rounded-xl border border-slate-800 bg-black shadow-[0_24px_40px_-36px_rgba(0,0,0,0.9)]">
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/70 px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+          <article className="overflow-hidden rounded-2xl border border-stone-300 bg-stone-900 shadow-sm">
+            <div className="flex items-center justify-between border-b border-stone-700 px-5 py-3">
+              <h2 className="text-base font-medium text-stone-100">
+                Salida serializada de la transformación
+              </h2>
+              <p className="font-mono text-[11px] uppercase tracking-widest text-stone-400">JSON</p>
             </div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Serialized Output</p>
-          </div>
-          <h3 className="px-4 pt-4 text-sm font-semibold text-slate-200">
-            Salida serializada de la transformación
-          </h3>
-          <pre className="mt-2 overflow-x-auto px-4 pb-4 font-mono text-xs leading-6 text-emerald-400">
-            {JSON.stringify(
-              {
-                inputCandidates: mockCandidates.length,
-                resultCountCandidatesByStatus: candidatesByStatus,
-                resultAverageTicketResolutionTime: avgResolutionHours,
-              },
-              null,
-              2
-            )}
-          </pre>
-        </article>
+            <pre className="overflow-x-auto px-5 py-4 font-mono text-xs leading-6 text-teal-300">
+              {JSON.stringify(
+                {
+                  inputCandidates: mockCandidates.length,
+                  resultCountCandidatesByStatus: candidatesByStatus,
+                  resultAverageTicketResolutionTime: avgResolutionHours,
+                },
+                null,
+                2
+              )}
+            </pre>
+          </article>
+        </div>
+
+        <section aria-labelledby="dashboard-sections" className="mt-10">
+          <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Accesos</p>
+          <h2
+            id="dashboard-sections"
+            className="mt-2 text-2xl font-medium tracking-tight text-stone-900"
+          >
+            Áreas del backoffice
+          </h2>
+          <ul className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {DASHBOARD_SECTIONS.map((section) => (
+              <li key={section.href}>
+                <Link
+                  href={section.href}
+                  prefetch={false}
+                  className={`${CARD} group block h-full transition hover:border-teal-600`}
+                >
+                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-teal-700">
+                    {section.area}
+                  </p>
+                  <p className="mt-2 flex items-center justify-between gap-2 text-base font-medium text-stone-900">
+                    {section.title}
+                    <span
+                      aria-hidden="true"
+                      className="text-stone-400 transition group-hover:translate-x-0.5 group-hover:text-teal-700"
+                    >
+                      →
+                    </span>
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-stone-600">{section.description}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-sm text-stone-500">
+            Próximamente: {UPCOMING_SECTIONS.join(" · ")}.
+          </p>
+        </section>
       </div>
     </section>
   );

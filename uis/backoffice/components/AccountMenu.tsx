@@ -23,14 +23,14 @@ export default function AccountMenu({ variant = "dark" }: { variant?: "dark" | "
       {user && <span className={`hidden sm:inline ${classes.email}`}>{user.email}</span>}
       <Link
         href="/account/profile"
-        className={`rounded-full border px-3 py-1 font-medium transition ${classes.pill}`}
+        className={`whitespace-nowrap rounded-lg border px-3 py-1 font-medium transition ${classes.pill}`}
       >
         Mi cuenta
       </Link>
       <button
         type="button"
         onClick={logout}
-        className={`rounded-full border px-3 py-1 font-medium transition ${classes.pill}`}
+        className={`whitespace-nowrap rounded-lg border px-3 py-1 font-medium transition ${classes.pill}`}
       >
         Cerrar sesion
       </button>

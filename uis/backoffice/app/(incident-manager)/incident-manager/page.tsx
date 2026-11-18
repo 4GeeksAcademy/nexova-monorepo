@@ -119,7 +119,7 @@ export default function IncidentListPage() {
           </div>
           <Link
             href="/incident-manager/new"
-            className="rounded-full bg-teal-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-teal-800"
+            className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-teal-800"
           >
             Nueva incidencia
           </Link>
@@ -185,7 +185,7 @@ export default function IncidentListPage() {
             <button
               type="button"
               onClick={() => setAttempt((n) => n + 1)}
-              className="mt-3 rounded-full border border-red-300 bg-white px-4 py-1.5 font-medium text-red-700 transition hover:bg-red-100"
+              className="mt-3 rounded-lg border border-red-300 bg-white px-4 py-1.5 font-medium text-red-700 transition hover:bg-red-100"
             >
               Reintentar
             </button>
