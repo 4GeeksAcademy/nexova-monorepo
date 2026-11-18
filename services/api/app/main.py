@@ -35,6 +35,7 @@ import random
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import router as agent
@@ -103,6 +104,22 @@ app = FastAPI(
     redoc_url="/redoc" if _DOCS else None,
     openapi_url="/openapi.json" if _DOCS else None,
 )
+
+
+GENERIC_SERVER_ERROR = "Ha ocurrido un error inesperado. Inténtalo de nuevo más tarde."
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Última red: una excepción no controlada responde 500 con JSON limpio.
+
+    El detalle (tipo y traza) queda en el log del servidor; al cliente nunca llegan
+    la traza, el texto de la excepción, rutas internas ni cadenas de conexión.
+    """
+    logger.error(
+        "Error no controlado en %s %s (%s)", request.method, request.url.path, type(exc).__name__, exc_info=exc
+    )
+    return JSONResponse(status_code=500, content={"detail": GENERIC_SERVER_ERROR})
 
 
 @app.exception_handler(RequestValidationError)

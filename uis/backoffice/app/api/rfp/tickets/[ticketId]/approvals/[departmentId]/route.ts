@@ -1,3 +1,4 @@
+import { backendFetch } from "@/lib/backend-fetch";
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
 /** Decisión humana de un departamento (aprobar / pedir cambios / rechazar). El backend responde 202. */
@@ -10,7 +11,7 @@ export async function POST(
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (authorization) headers.authorization = authorization;
 
-  const backendResponse = await fetch(
+  const backendResponse = await backendFetch(
     `${BACKEND_API_URL}/rfp/tickets/${encodeURIComponent(ticketId)}/approvals/${encodeURIComponent(departmentId)}`,
     {
       method: "POST",

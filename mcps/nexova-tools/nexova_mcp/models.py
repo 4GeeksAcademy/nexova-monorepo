@@ -2,9 +2,13 @@
 Contratos de entrada y salida de las tools.
 
 Los nombres de campo y los valores de dominio son los de la API de Nexova
-(`services/api/app/schemas.py` y `services/api/schemas.py`): ids de ticket
-`NXV-NNNNNN`, estados `OPEN|CLOSED|DISCARDED`, cinco categorías fijas y
+(`services/api/incident_manager/schemas.py` y `services/api/schemas.py`):
+estados `open|in_progress|resolved|discarded`, ocho categorías, origen y sede, y
 productos con `current_stock` frente a `min_stock_threshold`.
+
+La API identifica cada incidencia con un `id` entero; aquí se presenta como la
+referencia `NXV-NNNNNN` (id con 6 dígitos), que es la que usan los usuarios y el
+agente. `ticket_ref` / `ticket_pk` son la única conversión entre ambas.
 """
 
 from __future__ import annotations
@@ -15,6 +19,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, BeforeValidator, Field, computed_field
 
 TICKET_ID_PATTERN = r"^NXV-\d{6}$"
+
+
+def ticket_ref(pk: int) -> str:
+    """`482` → `NXV-000482`."""
+    return f"NXV-{pk:06d}"
+
+
+def ticket_pk(ref: str) -> int:
+    """`NXV-000482` → `482`. El patrón de la tool ya garantiza el formato."""
+    return int(ref.removeprefix("NXV-"))
 
 
 def _is_blank(value: Any) -> bool:
@@ -33,8 +47,21 @@ def blank_as(default: Any) -> BeforeValidator:
 
 BlankAsNone = blank_as(None)
 
-TicketStatus = Literal["OPEN", "CLOSED", "DISCARDED"]
-TicketCategory = Literal["TECHNICAL", "BILLING", "ACCESS", "HR_QUERY", "COMPLAINT"]
+# Mismos valores que `packages/shared/nexova_shared/incident_domain.py` (este proyecto `uv`
+# es independiente y no lo importa; la API los valida igualmente).
+TicketStatus = Literal["open", "in_progress", "resolved", "discarded"]
+TicketCategory = Literal[
+    "technical_failure",
+    "process_error",
+    "client_complaint",
+    "candidate_issue",
+    "staff_issue",
+    "sla_breach",
+    "data_quality",
+    "other",
+]
+TicketOrigin = Literal["customer", "branch", "internal"]
+TicketBranch = Literal["central", "valencia_operations", "miami_office", "remote"]
 
 InventoryReadAction = Literal["list", "get"]
 InventoryWriteAction = Literal["create", "update", "delete", "adjust_stock"]
@@ -42,17 +69,25 @@ InventoryAction = Literal["list", "get", "create", "update", "delete", "adjust_s
 
 
 class Ticket(BaseModel):
-    """Ticket del Incidents Manager. Nunca incluye el email del cliente."""
+    """Incidencia del gestor de incidencias. Nunca incluye datos personales."""
 
-    ticket_id: str = Field(description="Id del ticket, formato NXV-NNNNNN.")
-    date: dt.date = Field(description="Fecha del ticket (ISO 8601).")
-    client_company: str = Field(description="Empresa cliente que abrió el ticket.")
-    category: str = Field(description="TECHNICAL, BILLING, ACCESS, HR_QUERY o COMPLAINT.")
+    ticket_id: str = Field(description="Referencia de la incidencia, formato NXV-NNNNNN.")
+    title: str = Field(description="Título breve.")
     description: str
-    agent_id: str = Field(description="Agente de soporte asignado.")
-    status: str = Field(description="OPEN, CLOSED o DISCARDED.")
-    satisfaction_score: int | None = Field(default=None, description="1-5, solo en tickets cerrados con encuesta.")
+    category: str = Field(description="technical_failure, process_error, client_complaint, candidate_issue, "
+                                      "staff_issue, sla_breach, data_quality u other.")
+    status: str = Field(description="open, in_progress, resolved o discarded.")
+    origin: str = Field(description="customer, branch o internal.")
+    branch: str = Field(description="central, valencia_operations, miami_office o remote.")
+    client_company: str | None = Field(default=None, description="Empresa cliente asociada, si la hay.")
+    created_at: dt.datetime | None = Field(default=None, description="Creación (UTC).")
     updated_at: dt.datetime | None = Field(default=None, description="Última modificación (UTC).")
+
+    @classmethod
+    def from_api(cls, payload: dict[str, Any]) -> "Ticket":
+        """Construye el ticket desde la respuesta de la API (`id` entero → `ticket_id` NXV-NNNNNN)."""
+        data = {k: v for k, v in payload.items() if k != "id"}
+        return cls.model_validate({**data, "ticket_id": ticket_ref(int(payload["id"]))})
 
 
 class TicketList(BaseModel):

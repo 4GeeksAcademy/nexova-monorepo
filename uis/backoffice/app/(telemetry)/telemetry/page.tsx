@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ErrorNotice from "@/components/ErrorNotice";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/http-errors";
 import {
   fetchTelemetryReport,
   TelemetryReportError,
@@ -34,8 +36,8 @@ function rangeParams(id: RangeId): ReportRange {
 }
 
 type LoadState =
-  | { range: RangeId; status: "ok"; report: TelemetryReport }
-  | { range: RangeId; status: "error"; message: string; forbidden: boolean };
+  | { key: string; status: "ok"; report: TelemetryReport }
+  | { key: string; status: "error"; message: string; forbidden: boolean };
 
 function formatInstant(iso: string): string {
   const date = new Date(iso);
@@ -78,26 +80,28 @@ const TD = "px-3 py-2 text-sm text-stone-800";
 export default function TelemetryPage() {
   const [range, setRange] = useState<RangeId>("7d");
   const [state, setState] = useState<LoadState | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const requestKey = `${range}|${attempt}`;
 
   useEffect(() => {
     let cancelled = false;
     fetchTelemetryReport(rangeParams(range))
       .then((report) => {
-        if (!cancelled) setState({ range, status: "ok", report });
+        if (!cancelled) setState({ key: requestKey, status: "ok", report });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         const forbidden = err instanceof TelemetryReportError && err.status === 403;
-        const message = err instanceof Error ? err.message : "No se pudo cargar el reporte.";
-        setState({ range, status: "error", message, forbidden });
+        const message = err instanceof Error ? err.message : GENERIC_ERROR_MESSAGE;
+        setState({ key: requestKey, status: "error", message, forbidden });
       });
     return () => {
       cancelled = true;
     };
-  }, [range]);
+  }, [range, requestKey]);
 
   // Mientras la respuesta guardada no corresponda al rango elegido, se está cargando.
-  const isLoading = state === null || state.range !== range;
+  const isLoading = state === null || state.key !== requestKey;
   const report = state?.status === "ok" && !isLoading ? state.report : null;
 
   const perDay = useMemo(() => {
@@ -153,9 +157,11 @@ export default function TelemetryPage() {
         {isLoading && <p className="text-sm text-stone-500">Cargando reporte…</p>}
 
         {!isLoading && state?.status === "error" && (
-          <p role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {state.forbidden ? "No tienes permisos para ver el reporte de telemetría." : state.message}
-          </p>
+          <ErrorNotice
+            title="No se ha podido cargar el reporte"
+            message={state.forbidden ? "No tienes permisos para ver el reporte de telemetría." : state.message}
+            onRetry={state.forbidden ? undefined : () => setAttempt((n) => n + 1)}
+          />
         )}
 
         {report && (

@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ApiError, listOrders } from "@/lib/inventory";
 import type { Order } from "@/lib/inventory-types";
+import ErrorNotice from "@/components/ErrorNotice";
+import { CONNECTION_ERROR_MESSAGE } from "@/lib/http-errors";
 import { useSectionView } from "@/lib/useSectionView";
 
 // Solo se necesita una vez resuelto el fetch (ver el guard `isLoading` más
@@ -16,6 +18,7 @@ export default function OrdersHistoryPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,9 +30,7 @@ export default function OrdersHistoryPage() {
       .catch((err) => {
         if (!cancelled) {
           setError(
-            err instanceof ApiError
-              ? err.message
-              : "No se pudo conectar con la API. Comprueba que el backend esté en marcha."
+            err instanceof ApiError ? err.message : CONNECTION_ERROR_MESSAGE
           );
         }
       })
@@ -40,7 +41,13 @@ export default function OrdersHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
+  function retry() {
+    setError(null);
+    setIsLoading(true);
+    setAttempt((n) => n + 1);
+  }
 
   return (
     <section className="px-6 py-12">
@@ -57,11 +64,7 @@ export default function OrdersHistoryPage() {
           </p>
         </header>
 
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <ErrorNotice message={error} onRetry={retry} className="mb-6" />}
 
         {isLoading ? (
           <p className="text-sm text-stone-500">Cargando órdenes...</p>

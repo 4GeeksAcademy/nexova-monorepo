@@ -56,7 +56,9 @@ def make_client(engine) -> Callable[..., object]:
         with Session(engine) as session:
             yield session
 
-    def _make(*, role: str | None = "manager", broken_db: bool = False) -> TestClient:
+    def _make(
+        *, role: str | None = "manager", company: str | None = None, broken_db: bool = False
+    ) -> TestClient:
         app = FastAPI()
         app.include_router(router)
         if broken_db:
@@ -70,7 +72,11 @@ def make_client(engine) -> Callable[..., object]:
             app.dependency_overrides[get_db] = _db
         if role is not None:
             app.dependency_overrides[get_current_user] = lambda: User(
-                id="user-test", email="tester@example.com", hashed_password="x", role=role
+                id=f"user-{role}-{company}",
+                email="tester@example.com",
+                hashed_password="x",
+                role=role,
+                client_company=company,
             )
         return TestClient(app, raise_server_exceptions=False)
 

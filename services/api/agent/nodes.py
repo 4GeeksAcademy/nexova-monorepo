@@ -191,9 +191,9 @@ def _ticket_chunks(result: dict[str, Any]) -> list[dict[str, Any]]:
             "section": f"Ticket {t['ticket_id']}",
             "text": (
                 f"Ticket {t['ticket_id']} — estado: {t['status']}; categoría: {t['category']}; "
-                f"cliente: {t['client_company']}; fecha: {t['date']}; agente: {t['agent_id']}; "
-                f"satisfacción: {t['satisfaction_score'] if t['satisfaction_score'] is not None else 'sin valorar'}; "
-                f"descripción: {t['description']}"
+                f"origen: {t['origin']}; sede: {t['branch']}; "
+                f"cliente: {t['client_company'] or 'sin asignar'}; creado: {t['created_at']}; "
+                f"título: {t['title']}; descripción: {t['description']}"
             ),
         }
         for t in result["tickets"]

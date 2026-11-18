@@ -79,10 +79,10 @@ def test_sql_like_ticket_id_is_not_coerced_into_another_ticket() -> None:
 
 
 def test_valid_router_output_is_used(router_says) -> None:
-    router_says({"tickets": True, "ticket_category": "ACCESS", "client_company": "RetailMax Corp",
+    router_says({"tickets": True, "ticket_category": "technical_failure", "client_company": "RetailMax Corp",
                  "rag": False, "inventory": False, "ticket_id": None, "ticket_status": None, "product": None})
     decision = routing.classify_question(QUESTION)
-    assert decision.method == "llm" and decision.tickets and decision.ticket_category == "ACCESS"
+    assert decision.method == "llm" and decision.tickets and decision.ticket_category == "technical_failure"
 
 
 def test_rules_fallback_never_produces_an_invalid_decision() -> None:

@@ -1,59 +1,26 @@
 """
-Router: /api/incidents
+Router del analizador de incidencias (CSV): /api/incidents
 
-- POST /api/incidents/analyze          -> analiza un CSV subido, devuelve JSON
-                                          y guarda sus tickets válidos (Supabase)
+- POST /api/incidents/analyze          -> analiza un CSV subido y devuelve JSON
 - GET  /api/incidents/results/export   -> devuelve el último análisis en CSV
-- GET  /api/incidents                  -> lista tickets (filtros status/category/client_company)
-- GET  /api/incidents/{ticket_id}      -> un ticket; 404 si no existe
-- POST /api/incidents                  -> crea un ticket (siempre OPEN)
-- PATCH /api/incidents/{ticket_id}/status -> ciclo de vida del ticket
-                                          (404 / 409 invalid_transition / 422)
 
-Estos endpoints los consume el MCP Server `mcps/nexova-tools`, que es el
-único camino del agente LangGraph hacia el gestor de incidentes (su cuenta de
-servicio debe tener rol `manager`).
-
-Acceso (auditoría OWASP, hallazgo C2 — misma tenancy que el agente):
-- Personal interno (`admin`/`manager`): todas las empresas.
-- Cliente con `client_company`: solo su empresa; el filtro se fuerza por código
-  y un ticket ajeno responde 404 (no se revela que existe). Crea tickets solo
-  para su empresa.
-- `user` sin empresa: 403.
-- Cambios de estado y análisis/export de CSV: solo personal interno.
+Solo personal interno. Es una herramienta de análisis: no escribe en la base de
+datos. El gestor de incidencias (alta, listado, detalle, estado y resumen) vive
+en `incident_manager/`, en el mismo prefijo, sin solapamiento de rutas.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import get_args
+import csv
 
 import incidents_analyzer as ia
-from agent.guardrails.tenancy import Tenant
-from authz import current_tenant, require_staff
-from database import get_db
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.concurrency import run_in_threadpool
+from authz import require_staff
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from models import User
-from sqlmodel import Session
 
-from app import incidents_store
-from app.schemas import (
-    IncidentAnalysisSummary,
-    IncidentCategory,
-    IncidentCreate,
-    IncidentRead,
-    IncidentStatus,
-    IncidentStatusUpdate,
-)
+from app.schemas import IncidentAnalysisSummary
 from app.state import get_last_summary, set_last_summary
-
-logger = logging.getLogger(__name__)
-
-# Los Literal del contrato HTTP deben ser los mismos valores que valida el analizador.
-if set(get_args(IncidentCategory)) != ia.VALID_CATEGORIES or set(get_args(IncidentStatus)) != ia.VALID_STATUSES:
-    raise RuntimeError("Las categorías/estados de app.schemas no coinciden con incidents_analyzer.")
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -103,7 +70,7 @@ async def analyze_incidents(
         records = ia.parse_csv_text(text)
     except (ia.EmptyFileError, ia.MissingHeaderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception:
+    except (csv.Error, ValueError):  # CSV mal formado (comillas sin cerrar, nulos…)
         raise HTTPException(
             status_code=400,
             detail="El fichero no tiene un formato CSV válido.",
@@ -114,14 +81,6 @@ async def analyze_incidents(
 
     # Se guarda para que GET /api/incidents/results/export pueda descargarlo.
     set_last_summary(summary, owner=current_user.id)
-
-    # Tickets válidos a Supabase para consultarlos uno a uno (GET /api/incidents/{id}).
-    # Si la base de datos falla, el análisis se devuelve igual: el resumen no depende de ella.
-    try:
-        stored = await run_in_threadpool(incidents_store.upsert_valid_tickets, records)
-        logger.info("Incidentes: %d tickets válidos guardados de %s", stored, file.filename)
-    except Exception:
-        logger.exception("No se pudieron guardar los tickets de %s", file.filename)
 
     return IncidentAnalysisSummary.model_validate(summary)
 
@@ -147,84 +106,3 @@ async def export_results(current_user: User = Depends(require_staff)) -> Respons
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="results.csv"'},
     )
-
-
-@router.get("", response_model=list[IncidentRead])
-def list_incidents(
-    status: str | None = Query(default=None, max_length=20),
-    category: str | None = Query(default=None, max_length=20),
-    client_company: str | None = Query(default=None, max_length=100),
-    limit: int = Query(default=20, ge=1, le=incidents_store.MAX_LIST_LIMIT),
-    db: Session = Depends(get_db),
-    tenant: Tenant = Depends(current_tenant),
-) -> list[IncidentRead]:
-    """Tickets guardados, del más reciente al más antiguo. Solo lectura."""
-    if not tenant.is_staff:
-        client_company = tenant.client_company  # forzado: el cliente no elige la empresa
-    tickets = incidents_store.list_tickets(
-        db, status=status, category=category, client_company=client_company, limit=limit
-    )
-    return [IncidentRead.model_validate(t) for t in tickets]
-
-
-@router.post("", response_model=IncidentRead, status_code=201)
-def create_incident(
-    payload: IncidentCreate,
-    db: Session = Depends(get_db),
-    tenant: Tenant = Depends(current_tenant),
-) -> IncidentRead:
-    """Crea un ticket individual. El servidor asigna `ticket_id` (NXV-NNNNNN) y `status = OPEN`."""
-    company = payload.client_company if tenant.is_staff else tenant.client_company
-    ticket = incidents_store.create_ticket(
-        db,
-        client_company=company,
-        category=payload.category,
-        description=payload.description,
-        agent_id=payload.agent_id,
-        ticket_date=payload.date,
-    )
-    logger.info("Incidentes: ticket %s creado (staff=%s)", ticket.ticket_id, tenant.is_staff)
-    return IncidentRead.model_validate(ticket)
-
-
-@router.patch("/{ticket_id}/status", response_model=IncidentRead)
-def update_incident_status(
-    ticket_id: str,
-    payload: IncidentStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_staff),
-) -> IncidentRead:
-    """
-    Endpoint de ciclo de vida: OPEN→CLOSED, OPEN→DISCARDED y CLOSED→OPEN.
-    DISCARDED es final. Otra transición responde 409 (`invalid_transition`).
-    """
-    try:
-        ticket = incidents_store.update_status(db, ticket_id, payload.status)
-    except incidents_store.TicketNotFoundError:
-        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.") from None
-    except incidents_store.InvalidTransitionError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "invalid_transition",
-                "message": str(exc),
-                "current_status": exc.current,
-                "requested_status": exc.target,
-                "allowed": exc.allowed,
-            },
-        ) from None
-    logger.info("Incidentes: ticket %s → %s por %s", ticket.ticket_id, ticket.status, current_user.id)
-    return IncidentRead.model_validate(ticket)
-
-
-@router.get("/{ticket_id}", response_model=IncidentRead)
-def get_incident(
-    ticket_id: str,
-    db: Session = Depends(get_db),
-    tenant: Tenant = Depends(current_tenant),
-) -> IncidentRead:
-    """Un ticket por su id (p. ej. NXV-000001). Solo lectura."""
-    ticket = incidents_store.get_ticket(db, ticket_id)
-    if ticket is None or not tenant.owns(ticket.client_company):
-        raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.") from None
-    return IncidentRead.model_validate(ticket)

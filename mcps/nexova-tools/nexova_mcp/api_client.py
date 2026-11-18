@@ -84,28 +84,42 @@ class InventoryReader:
         return await self._api.get(path, params=params)
 
 
-def _detail(response: httpx.Response) -> Any:
+def _body(response: httpx.Response) -> Any:
     try:
-        return response.json().get("detail")
+        return response.json()
     except Exception:
         return None
+
+
+def _first_error_message(body: Any, default: str) -> str:
+    """Mensaje del primer error del cuerpo `{"errors": [{"field", "message"}]}`."""
+    if isinstance(body, dict) and isinstance(body.get("errors"), list) and body["errors"]:
+        first = body["errors"][0]
+        if isinstance(first, dict) and isinstance(first.get("message"), str):
+            return first["message"]
+    return default
 
 
 def _parse(response: httpx.Response) -> Any:
     status = response.status_code
     if 200 <= status < 300:
         return response.json()
-    detail = _detail(response)
+    body = _body(response)
+    detail = body.get("detail") if isinstance(body, dict) else None
     if status == 404:
         raise NexovaToolError(ErrorCode.NOT_FOUND, str(detail or "Recurso no encontrado."))
-    if status == 409 and isinstance(detail, dict) and detail.get("code") == "invalid_transition":
+    if status == 400 and isinstance(body, dict) and "allowed" in body and "current_status" in body:
         raise NexovaToolError(
             ErrorCode.INVALID_TRANSITION,
-            detail.get("message", "Transición de estado no permitida."),
-            {k: detail[k] for k in ("current_status", "requested_status", "allowed") if k in detail},
+            _first_error_message(body, "Transición de estado no permitida."),
+            {k: body[k] for k in ("current_status", "requested_status", "allowed") if k in body},
         )
-    if status == 422:
-        raise NexovaToolError(ErrorCode.VALIDATION_ERROR, "La API de Nexova rechazó los datos.", {"upstream": detail})
+    if status in (400, 422):
+        raise NexovaToolError(
+            ErrorCode.VALIDATION_ERROR,
+            "La API de Nexova rechazó los datos.",
+            {"upstream": body.get("errors") if isinstance(body, dict) and "errors" in body else detail},
+        )
     if status in (401, 403):
         raise NexovaToolError(ErrorCode.UPSTREAM_AUTH_ERROR, "La API de Nexova rechazó la cuenta de servicio.")
     raise NexovaToolError(ErrorCode.UPSTREAM_UNAVAILABLE, "La API de Nexova devolvió un error.", {"upstream_status": status})

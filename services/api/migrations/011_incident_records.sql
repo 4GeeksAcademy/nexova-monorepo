@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.incident_records (
     status      VARCHAR       NOT NULL DEFAULT 'open',
     origin      VARCHAR       NOT NULL,
     branch      VARCHAR       NOT NULL,
+    client_company VARCHAR(100),
     created_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
     CONSTRAINT ck_incident_records_status CHECK (status IN ('open', 'in_progress', 'resolved', 'discarded')),
@@ -32,6 +33,12 @@ CREATE INDEX IF NOT EXISTS ix_incident_records_status   ON public.incident_recor
 CREATE INDEX IF NOT EXISTS ix_incident_records_category ON public.incident_records (category);
 CREATE INDEX IF NOT EXISTS ix_incident_records_origin   ON public.incident_records (origin);
 CREATE INDEX IF NOT EXISTS ix_incident_records_branch   ON public.incident_records (branch);
+
+-- Empresa cliente (opcional). Para bases donde `incident_records` ya existía sin
+-- esta columna (`create_all()` no añade columnas a tablas existentes). Después,
+-- `scripts/seed_incidents.py` completa la empresa de las filas ya cargadas.
+ALTER TABLE public.incident_records ADD COLUMN IF NOT EXISTS client_company VARCHAR(100);
+CREATE INDEX IF NOT EXISTS ix_incident_records_client_company ON public.incident_records (client_company);
 
 -- Claves del CSV ya cargadas: hace idempotente scripts/seed_incidents.py sin
 -- almacenar el ticket_id en el modelo (BRIEFING).

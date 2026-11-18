@@ -24,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 load_dotenv(REPO_ROOT / ".env")
 
+from _cli import fail, reason  # noqa: E402
 from agent.guardrails.events import log_path, read_events, summarize  # noqa: E402
 
 
@@ -40,7 +41,11 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="salida JSON")
     args = parser.parse_args()
 
-    summary = summarize(read_events(), since=args.since, until=args.until, conversation_id=args.conversation_id)
+    try:
+        events = read_events()
+    except (OSError, ValueError) as exc:
+        fail(f"no se pudo leer el log de guardrails en {log_path()} ({reason(exc)}).")
+    summary = summarize(events, since=args.since, until=args.until, conversation_id=args.conversation_id)
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return

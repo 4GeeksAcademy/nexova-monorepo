@@ -151,7 +151,8 @@ def test_task_status_includes_error_message_on_failure(monkeypatch):
 
     assert body["status"] == "failure"
     assert body["result"] is None
-    assert body["error"] == "RuntimeError: supabase caído"
+    assert body["error"].startswith("RuntimeError:")
+    assert "supabase" not in body["error"]  # el texto de la excepción no llega al cliente
 
 
 def test_task_status_returns_503_when_the_backend_is_down(monkeypatch):

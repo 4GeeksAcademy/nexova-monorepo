@@ -49,6 +49,7 @@ export default function CandidatesPageClient() {
   const [records, setRecords] = useState<CandidateRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
+  const [attempt, setAttempt] = useState(0);
 
   const [searchInput, setSearchInput] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -104,7 +105,7 @@ export default function CandidatesPageClient() {
     }
 
     loadRecords();
-  }, [selectedStage, selectedStatus]);
+  }, [selectedStage, selectedStatus, attempt]);
 
   function updateFilter(name: "status" | "stage", value: string) {
     const params = new URLSearchParams(searchParamsString);
@@ -397,7 +398,27 @@ export default function CandidatesPageClient() {
         <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           {loading && <p className="text-sm text-slate-600">Cargando candidaturas...</p>}
 
-          {!loading && error && <p className="text-sm text-rose-700">Error: {error}</p>}
+          {!loading && error && (
+            <div role="alert" className="text-sm text-rose-700">
+              <p className="font-medium">No se han podido cargar las candidaturas</p>
+              <p className="mt-1">{error}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAttempt((n) => n + 1)}
+                  className="rounded-full border border-rose-300 bg-white px-4 py-1.5 font-medium text-rose-700 transition hover:bg-rose-50"
+                >
+                  Reintentar
+                </button>
+                <Link href="/" className="underline-offset-2 hover:underline">
+                  Volver al inicio
+                </Link>
+              </div>
+              <p className="mt-3 text-xs text-rose-700/80">
+                Si el problema continúa, contacta con el equipo de soporte.
+              </p>
+            </div>
+          )}
 
           {!loading && !error && filteredRecords.length === 0 && (
             <p className="text-sm text-slate-600">No hay candidaturas para los filtros actuales.</p>

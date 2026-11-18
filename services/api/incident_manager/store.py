@@ -34,8 +34,12 @@ class InvalidTransitionError(ValueError):
         super().__init__(f"{current} → {requested} no es una transición válida")
 
 
-def create_incident(session: Session, data: IncidentCreate) -> ManagedIncident:
-    incident = ManagedIncident(**data.model_dump(), status="open")
+def create_incident(
+    session: Session, data: IncidentCreate, *, client_company: str | None = None
+) -> ManagedIncident:
+    """La empresa la decide el llamador (el cliente no elige): ver `router.create_incident`."""
+    values = data.model_dump(exclude={"client_company"})
+    incident = ManagedIncident(**values, client_company=client_company, status="open")
     session.add(incident)
     session.commit()
     session.refresh(incident)
@@ -56,8 +60,11 @@ def list_incidents(
     origin: str | None = None,
     branch: str | None = None,
     category: str | None = None,
+    client_company: str | None = None,
+    exact_company: bool = False,
     limit: int = DEFAULT_LIST_LIMIT,
 ) -> list[ManagedIncident]:
+    """`client_company`: coincidencia parcial (personal interno) o exacta (`exact_company`, clientes)."""
     statement = select(ManagedIncident)
     for column, value in (
         (ManagedIncident.status, status),
@@ -67,6 +74,12 @@ def list_incidents(
     ):
         if value is not None:
             statement = statement.where(column == value)
+    if client_company:
+        company = client_company.strip()
+        if exact_company:
+            statement = statement.where(func.lower(ManagedIncident.client_company) == company.lower())
+        else:
+            statement = statement.where(ManagedIncident.client_company.ilike(f"%{company}%"))
     statement = statement.order_by(
         ManagedIncident.created_at.desc(), ManagedIncident.id.desc()  # type: ignore[union-attr]
     ).limit(min(limit, MAX_LIST_LIMIT))
@@ -85,20 +98,27 @@ def update_status(session: Session, incident_id: int, new_status: str) -> Manage
     return incident
 
 
-def _count_by(session: Session, column, values: tuple[str, ...]) -> dict[str, int]:
+def _count_by(
+    session: Session, column, values: tuple[str, ...], company: str | None
+) -> dict[str, int]:
     counts = dict.fromkeys(values, 0)
-    for value, total in session.exec(select(column, func.count()).group_by(column)).all():
+    statement = select(column, func.count()).group_by(column)
+    if company is not None:
+        statement = statement.where(func.lower(ManagedIncident.client_company) == company.lower())
+    for value, total in session.exec(statement).all():
         if value in counts:
             counts[value] = total
     return counts
 
 
-def summarize(session: Session) -> dict[str, object]:
-    by_status = _count_by(session, ManagedIncident.status, STATUSES)
+def summarize(session: Session, *, client_company: str | None = None) -> dict[str, object]:
+    """Métricas agregadas. Con `client_company` solo cuenta las incidencias de esa empresa."""
+    company = client_company.strip() if client_company else client_company
+    by_status = _count_by(session, ManagedIncident.status, STATUSES, company)
     return {
         "total": sum(by_status.values()),
         "by_status": by_status,
-        "by_category": _count_by(session, ManagedIncident.category, CATEGORIES),
-        "by_origin": _count_by(session, ManagedIncident.origin, ORIGINS),
-        "by_branch": _count_by(session, ManagedIncident.branch, BRANCHES),
+        "by_category": _count_by(session, ManagedIncident.category, CATEGORIES, company),
+        "by_origin": _count_by(session, ManagedIncident.origin, ORIGINS, company),
+        "by_branch": _count_by(session, ManagedIncident.branch, BRANCHES, company),
     }

@@ -81,9 +81,10 @@ class FakeNexovaApi:
     """Responde como `services/api` para las rutas que usa el MCP."""
 
     def __init__(self) -> None:
-        self.tickets: dict[str, dict[str, Any]] = {
-            "NXV-000482": self._ticket("NXV-000482", "OPEN"),
-            "NXV-000483": self._ticket("NXV-000483", "DISCARDED"),
+        # Como `services/api/incident_manager`: `id` entero y estados en minúsculas.
+        self.tickets: dict[int, dict[str, Any]] = {
+            482: self._ticket(482, "open"),
+            483: self._ticket(483, "discarded"),
         }
         self.products = [
             {"id": 1, "name": "Ratón ergonómico", "sku": "MOU-ERG-01", "category": "peripherals",
@@ -95,10 +96,11 @@ class FakeNexovaApi:
         self.down = False
 
     @staticmethod
-    def _ticket(ticket_id: str, status: str) -> dict[str, Any]:
-        return {"ticket_id": ticket_id, "date": "2026-11-01", "client_company": "Acme Corp",
-                "category": "TECHNICAL", "description": "VPN caída", "agent_id": "AG-01",
-                "status": status, "satisfaction_score": None, "updated_at": "2026-11-01T10:00:00Z"}
+    def _ticket(pk: int, status: str) -> dict[str, Any]:
+        return {"id": pk, "title": "VPN caída", "description": "No funciona el acceso VPN",
+                "category": "technical_failure", "status": status, "origin": "customer",
+                "branch": "central", "client_company": "Acme Corp",
+                "created_at": "2026-11-01T10:00:00Z", "updated_at": "2026-11-01T10:00:00Z"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -116,24 +118,26 @@ class FakeNexovaApi:
             return httpx.Response(200, json=items)
         if path == "/api/incidents" and method == "POST":
             body = json.loads(request.content)
-            ticket_id = f"NXV-{len(self.tickets) + 482:06d}"
-            self.tickets[ticket_id] = {**self._ticket(ticket_id, "OPEN"), **body}
-            return httpx.Response(201, json=self.tickets[ticket_id])
+            pk = max(self.tickets) + 1
+            self.tickets[pk] = {**self._ticket(pk, "open"), **body}
+            return httpx.Response(201, json=self.tickets[pk])
         if path.startswith("/api/incidents/") and path.endswith("/status") and method == "PATCH":
-            ticket_id = path.split("/")[3]
-            ticket = self.tickets.get(ticket_id)
+            pk = int(path.split("/")[3])
+            ticket = self.tickets.get(pk)
             if ticket is None:
-                return httpx.Response(404, json={"detail": f"No existe el ticket '{ticket_id}'."})
+                return httpx.Response(404, json={"detail": "No existe ninguna incidencia con ese identificador."})
             target = json.loads(request.content)["status"]
-            allowed = {"OPEN": ["CLOSED", "DISCARDED"], "CLOSED": ["OPEN"], "DISCARDED": []}[ticket["status"]]
+            allowed = {"open": ["in_progress", "discarded"], "in_progress": ["resolved", "discarded"],
+                       "resolved": [], "discarded": []}[ticket["status"]]
             if target not in allowed:
-                return httpx.Response(409, json={"detail": {
-                    "code": "invalid_transition", "message": f"No se puede pasar de {ticket['status']} a {target}.",
-                    "current_status": ticket["status"], "requested_status": target, "allowed": allowed}})
+                return httpx.Response(400, json={
+                    "errors": [{"field": "status",
+                                "message": f"No se puede pasar de «{ticket['status']}» a «{target}»."}],
+                    "current_status": ticket["status"], "requested_status": target, "allowed": allowed})
             ticket["status"] = target
             return httpx.Response(200, json=ticket)
         if path.startswith("/api/incidents/") and method == "GET":
-            ticket = self.tickets.get(path.rsplit("/", 1)[1])
+            ticket = self.tickets.get(int(path.rsplit("/", 1)[1]))
             return httpx.Response(200, json=ticket) if ticket else httpx.Response(404, json={"detail": "No existe"})
 
         if path == "/inventory/products" and method == "GET":

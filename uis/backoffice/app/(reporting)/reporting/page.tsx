@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ErrorNotice from "@/components/ErrorNotice";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/http-errors";
 import {
   fetchLatestPipelineRun,
   fetchWeeklyPerformance,
@@ -297,7 +299,8 @@ export default function ReportingPage() {
   // `null` = la última semana calculada.
   const [requestedWeek, setRequestedWeek] = useState<string | null>(null);
   const [state, setState] = useState<LoadState | null>(null);
-  const requestKey = requestedWeek ?? LATEST;
+  const [attempt, setAttempt] = useState(0);
+  const requestKey = `${requestedWeek ?? LATEST}|${attempt}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -307,7 +310,7 @@ export default function ReportingPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : "No se pudo cargar el reporte.";
+        const message = err instanceof Error ? err.message : GENERIC_ERROR_MESSAGE;
         setState({ key: requestKey, status: "error", message });
       });
     return () => {
@@ -370,9 +373,11 @@ export default function ReportingPage() {
         {isLoading && <p className="text-sm text-stone-500">Cargando reporte…</p>}
 
         {!isLoading && state?.status === "error" && (
-          <p role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-            No se pudo cargar el reporte. {state.message}
-          </p>
+          <ErrorNotice
+            title="No se ha podido cargar el reporte"
+            message={state.message}
+            onRetry={() => setAttempt((n) => n + 1)}
+          />
         )}
 
         {loaded && report === null && (

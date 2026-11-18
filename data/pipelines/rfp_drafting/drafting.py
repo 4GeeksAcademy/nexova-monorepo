@@ -38,17 +38,18 @@ def max_iterations() -> int:
 
 
 def incident_clients() -> list[str]:
-    """Clientes actuales de Nexova: empresas con tickets en el gestor de incidentes (Supabase).
+    """Clientes actuales de Nexova: empresas con incidencias en el gestor de incidencias (Supabase).
 
     Alimentan la regla `clientes-anonimizados`. Si la tabla no está disponible
     se registra un aviso y la regla se queda sin nombres que vigilar.
     """
     try:
         with get_engine().connect() as conn:
-            rows = conn.execute(text("SELECT DISTINCT client_company FROM public.incident")).scalars().all()
+            query = text("SELECT DISTINCT client_company FROM public.incident_records WHERE client_company IS NOT NULL")
+            rows = conn.execute(query).scalars().all()
         return [r for r in rows if r]
     except Exception:
-        logger.warning("No se pudieron leer los clientes actuales (tabla incident)", exc_info=True)
+        logger.warning("No se pudieron leer los clientes actuales (tabla incident_records)", exc_info=True)
         return []
 
 

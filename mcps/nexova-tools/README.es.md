@@ -2,7 +2,7 @@
 
 _[English version](./README.md)_
 
-Servidor MCP que expone el **Incidents Manager** (tickets de soporte) y el **inventario** de Nexova a cualquier cliente MCP autorizado: el agente LangGraph de `services/api`, MCP Playground u otros equipos. Está protegido con **OAuth 2.1 vía [MCP Auth](https://mcp-auth.dev/)** (`mcpauth`, modo resource server), con **Logto** como authorization server.
+Servidor MCP que expone el **gestor de incidencias** (tickets de soporte) y el **inventario** de Nexova a cualquier cliente MCP autorizado: el agente LangGraph de `services/api`, MCP Playground u otros equipos. Está protegido con **OAuth 2.1 vía [MCP Auth](https://mcp-auth.dev/)** (`mcpauth`, modo resource server), con **Logto** como authorization server.
 
 No reimplementa lógica de negocio. Cada tool llama a los mismos endpoints de `services/api` que usa el backoffice.
 
@@ -55,11 +55,12 @@ Los cambios de estado pasan **solo** por `PATCH /api/incidents/{id}/status`, nun
 
 | Desde | Hacia |
 |---|---|
-| `OPEN` | `CLOSED`, `DISCARDED` |
-| `CLOSED` | `OPEN` (reabrir) |
-| `DISCARDED` | — (estado final) |
+| `open` | `in_progress`, `discarded` |
+| `in_progress` | `resolved`, `discarded` |
+| `resolved` | — (estado final) |
+| `discarded` | — (estado final) |
 
-Cualquier otra transición devuelve `INVALID_TRANSITION`, con el estado actual y las transiciones permitidas. El id (`NXV-NNNNNN`) y el estado inicial (`OPEN`) los asigna la API al crear el ticket.
+Cualquier otra transición devuelve `INVALID_TRANSITION`, con el estado actual y las transiciones permitidas. El id y el estado inicial (`open`) los asigna la API al crear el ticket. La API usa un `id` entero; el MCP lo expone como la referencia `NXV-NNNNNN` (`ticket_ref`/`ticket_pk` en `nexova_mcp/models.py`). Una transición inválida llega de la API como 400 con `allowed` y se devuelve como `INVALID_TRANSITION`.
 
 ### Identidad hacia la API
 
@@ -83,8 +84,8 @@ El parámetro `resource_metadata` apunta a la Protected Resource Metadata, y con
 El texto de un error de tool es este JSON:
 
 ```json
-{"error": {"code": "INVALID_TRANSITION", "message": "No se puede pasar de DISCARDED a OPEN. …",
-           "details": {"current_status": "DISCARDED", "requested_status": "OPEN", "allowed": []}}}
+{"error": {"code": "INVALID_TRANSITION", "message": "No se puede pasar de «discarded» a «open». …",
+           "details": {"current_status": "discarded", "requested_status": "open", "allowed": []}}}
 ```
 
 | `code` | Cuándo |
@@ -169,8 +170,8 @@ cd mcps/nexova-tools && uv run pytest
 
    | Paso | Llamada | Resultado esperado |
    |---|---|---|
-   | 1 | `create_ticket` | Ticket `OPEN` con id nuevo |
-   | 2 | `update_ticket_status` → `CLOSED` | `CLOSED` |
+   | 1 | `create_ticket` | Ticket `open` con id nuevo |
+   | 2 | `update_ticket_status` → `in_progress` | `in_progress` |
    | 3 | `update_ticket_status` → `DISCARDED` | `INVALID_TRANSITION` |
    | 4 | `get_ticket` / `list_tickets` | El ticket con su estado |
    | 5 | `query_inventory` (`list`, con `search` o `below_threshold_only`) | Productos |

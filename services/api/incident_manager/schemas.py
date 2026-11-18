@@ -26,6 +26,8 @@ class IncidentCreate(BaseModel):
     category: Category
     origin: Origin
     branch: Branch
+    # Solo lo respeta el personal interno; un cliente siempre crea para su empresa.
+    client_company: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class IncidentStatusUpdate(BaseModel):
@@ -44,6 +46,7 @@ class IncidentRead(BaseModel):
     status: Status
     origin: Origin
     branch: Branch
+    client_company: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import FileUploader from "@/components/incidents/FileUploader";
+import ErrorNotice from "@/components/ErrorNotice";
 import { analyzeIncidentsFile, ApiError } from "@/lib/api";
+import { CONNECTION_ERROR_MESSAGE } from "@/lib/http-errors";
 import type { AnalysisSummary } from "@/lib/types";
 import { useSectionView } from "@/lib/useSectionView";
 
@@ -21,6 +23,7 @@ export default function IncidentsPage() {
   useSectionView("incidents");
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [lastFile, setLastFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,16 +31,13 @@ export default function IncidentsPage() {
     setIsLoading(true);
     setError(null);
     setFileName(file.name);
+    setLastFile(file);
     try {
       const result = await analyzeIncidentsFile(file);
       setSummary(result);
     } catch (err) {
       setSummary(null);
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "No se pudo conectar con la API. Comprueba que el backend esté en marcha."
-      );
+      setError(err instanceof ApiError ? err.message : CONNECTION_ERROR_MESSAGE);
     } finally {
       setIsLoading(false);
     }
@@ -66,9 +66,13 @@ export default function IncidentsPage() {
           />
 
           {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
+            <ErrorNotice
+              className="mt-4"
+              title="No se ha podido analizar el fichero"
+              message={error}
+              onRetry={lastFile ? () => handleFileSelected(lastFile) : undefined}
+              retryLabel="Reintentar análisis"
+            />
           )}
 
           {summary && (

@@ -41,6 +41,7 @@ class SeedRow:
     origin: str
     branch: str
     created_at: datetime
+    client_company: str  # opcional en el modelo, pero el CSV siempre lo trae (validado)
 
 
 def _parse_date(value: str) -> datetime | None:
@@ -85,6 +86,7 @@ def transform_csv_row(record: dict[str, Any]) -> tuple[SeedRow | None, list[str]
             origin=SEED_ORIGIN,
             branch=SEED_BRANCH,
             created_at=created_at,
+            client_company=record["client_company"].strip(),
         ),
         [],
     )

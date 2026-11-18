@@ -5,6 +5,8 @@ import { Suspense, useEffect, useState } from "react";
 import OutboundOrderForm from "@/components/inventory/OutboundOrderForm";
 import { ApiError, listProducts } from "@/lib/inventory";
 import type { Asset } from "@/lib/inventory-types";
+import ErrorNotice from "@/components/ErrorNotice";
+import { CONNECTION_ERROR_MESSAGE } from "@/lib/http-errors";
 import { useSectionView } from "@/lib/useSectionView";
 
 function OutboundOrderPageContent() {
@@ -15,6 +17,7 @@ function OutboundOrderPageContent() {
   const [products, setProducts] = useState<Asset[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,9 +29,7 @@ function OutboundOrderPageContent() {
       .catch((err) => {
         if (!cancelled) {
           setError(
-            err instanceof ApiError
-              ? err.message
-              : "No se pudo conectar con la API. Comprueba que el backend esté en marcha."
+            err instanceof ApiError ? err.message : CONNECTION_ERROR_MESSAGE
           );
         }
       })
@@ -39,7 +40,13 @@ function OutboundOrderPageContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
+  function retry() {
+    setError(null);
+    setIsLoading(true);
+    setAttempt((n) => n + 1);
+  }
 
   return (
     <section className="px-6 py-12">
@@ -57,11 +64,7 @@ function OutboundOrderPageContent() {
           </p>
         </header>
 
-        {error && (
-          <div className="mb-6 max-w-lg rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <ErrorNotice message={error} onRetry={retry} className="mb-6 max-w-lg" />}
 
         {isLoading ? (
           <p className="text-sm text-stone-500">Cargando activos...</p>

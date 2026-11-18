@@ -1,3 +1,4 @@
+import { backendFetch } from "@/lib/backend-fetch";
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
 export async function GET(request: Request): Promise<Response> {
@@ -5,7 +6,7 @@ export async function GET(request: Request): Promise<Response> {
   // Reenvía `week_start` tal cual; la API valida que sea lunes y aplica el defecto.
   const { search } = new URL(request.url);
 
-  const backendResponse = await fetch(
+  const backendResponse = await backendFetch(
     `${BACKEND_API_URL}/reporting/weekly-office-program-performance${search}`,
     {
       headers: authorization ? { authorization } : {},
