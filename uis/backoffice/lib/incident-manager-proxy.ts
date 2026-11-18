@@ -1,7 +1,7 @@
 /** Utilidades de servidor para los proxies de `app/api/incident-manager/*`. */
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
-const BACKEND_PATH = "/api/incident-manager";
+const BACKEND_PATH = "/api/incidents";
 
 /** Reenvía la petición al backend con el mismo `Authorization` y devuelve su respuesta tal cual. */
 export async function forward(

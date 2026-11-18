@@ -1,5 +1,5 @@
 """
-Schemas Pydantic de respuesta para el dominio `incidents`.
+Schemas Pydantic de respuesta del analizador de incidencias (CSV).
 
 Reflejan exactamente la forma que produce
 `incidents_analyzer.analyzer.build_summary()`, para que
@@ -8,16 +8,7 @@ Reflejan exactamente la forma que produce
 
 from __future__ import annotations
 
-import datetime as dt
-from datetime import date, datetime
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
-
-# Mismos valores que `incidents_analyzer.VALID_CATEGORIES` / `VALID_STATUSES`
-# (comprobado en el arranque del router de incidencias).
-IncidentCategory = Literal["TECHNICAL", "BILLING", "ACCESS", "HR_QUERY", "COMPLAINT"]
-IncidentStatus = Literal["OPEN", "CLOSED", "DISCARDED"]
+from pydantic import BaseModel
 
 
 class InvalidBreakdownItem(BaseModel):
@@ -60,41 +51,3 @@ class IncidentAnalysisSummary(BaseModel):
     category_breakdown: list[CategoryBreakdownItem]
     status_breakdown: list[StatusBreakdownItem]
     satisfaction: SatisfactionSummary
-
-
-class IncidentRead(BaseModel):
-    """Ticket individual del gestor de incidentes. Nunca incluye `customer_email`."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    ticket_id: str
-    date: date
-    client_company: str
-    category: str
-    description: str
-    agent_id: str
-    status: str
-    satisfaction_score: int | None = None
-    updated_at: datetime
-
-
-class IncidentCreate(BaseModel):
-    """Alta de un ticket. El id y el estado (`OPEN`) los asigna el servidor."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    client_company: str = Field(min_length=1, max_length=100)
-    category: IncidentCategory
-    description: str = Field(min_length=1, max_length=2000)
-    agent_id: str = Field(min_length=1, max_length=50)
-    # `dt.date` y no `date`: el campo se llama igual que el tipo y, con valor
-    # por defecto, el nombre quedaría ligado al `FieldInfo` en la clase.
-    date: dt.date | None = Field(default=None, description="Fecha del ticket; por defecto hoy (UTC).")
-
-
-class IncidentStatusUpdate(BaseModel):
-    """Cuerpo de `PATCH /api/incidents/{ticket_id}/status`."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    status: IncidentStatus

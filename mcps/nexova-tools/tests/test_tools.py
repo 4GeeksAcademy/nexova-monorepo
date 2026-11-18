@@ -33,7 +33,7 @@ async def test_discovery_lists_documented_tools(rpc) -> None:
         assert tool["inputSchema"]["type"] == "object"
         assert tool["outputSchema"]["type"] == "object"
 
-    assert tools["update_ticket_status"]["inputSchema"]["properties"]["status"]["enum"] == ["OPEN", "CLOSED", "DISCARDED"]
+    assert tools["update_ticket_status"]["inputSchema"]["properties"]["status"]["enum"] == ["open", "in_progress", "resolved", "discarded"]
     assert tools["get_ticket"]["inputSchema"]["properties"]["ticket_id"]["pattern"] == r"^NXV-\d{6}$"
     assert tools["query_inventory"]["annotations"]["readOnlyHint"] is True
     assert tools["create_ticket"]["annotations"]["readOnlyHint"] is False
@@ -42,28 +42,36 @@ async def test_discovery_lists_documented_tools(rpc) -> None:
 # --- Tickets -----------------------------------------------------------------
 
 async def test_ticket_full_flow(rpc, fake_api) -> None:
-    created = (await rpc.tool("create_ticket", client_company="Globex", category="BILLING",
-                              description="Factura duplicada", agent_id="AG-07"))["structuredContent"]
-    assert created["status"] == "OPEN"
+    created = (await rpc.tool("create_ticket", client_company="Globex", title="Factura duplicada", description="Se cobró dos veces", category="process_error", origin="customer", branch="central"))["structuredContent"]
+    assert created["status"] == "open"
     ticket_id = created["ticket_id"]
+    assert ticket_id == "NXV-000484"  # id 484 de la API presentado como referencia
 
-    closed = (await rpc.tool("update_ticket_status", ticket_id=ticket_id, status="CLOSED"))["structuredContent"]
-    assert closed["status"] == "CLOSED"
+    started = (await rpc.tool("update_ticket_status", ticket_id=ticket_id, status="in_progress"))["structuredContent"]
+    assert started["status"] == "in_progress"
+    resolved = (await rpc.tool("update_ticket_status", ticket_id=ticket_id, status="resolved"))["structuredContent"]
+    assert resolved["status"] == "resolved"
 
     fetched = (await rpc.tool("get_ticket", ticket_id=ticket_id))["structuredContent"]
-    assert fetched["status"] == "CLOSED"
+    assert fetched["status"] == "resolved" and fetched["client_company"] == "Globex"
 
-    listed = (await rpc.tool("list_tickets", status="CLOSED"))["structuredContent"]
+    listed = (await rpc.tool("list_tickets", status="resolved"))["structuredContent"]
     assert ticket_id in [t["ticket_id"] for t in listed["tickets"]]
 
     patch = [r for r in fake_api.requests if r.method == "PATCH"]
-    assert [r.url.path for r in patch] == [f"/api/incidents/{ticket_id}/status"]  # ciclo de vida, no PATCH genérico
+    assert [r.url.path for r in patch] == ["/api/incidents/484/status"] * 2  # ciclo de vida, no PATCH genérico
 
 
 async def test_invalid_transition_has_its_own_code(rpc) -> None:
-    error = tool_error(await rpc.tool("update_ticket_status", ticket_id="NXV-000483", status="OPEN"))
+    error = tool_error(await rpc.tool("update_ticket_status", ticket_id="NXV-000483", status="open"))
     assert error["code"] == "INVALID_TRANSITION"
-    assert error["details"] == {"current_status": "DISCARDED", "requested_status": "OPEN", "allowed": []}
+    assert error["details"] == {"current_status": "discarded", "requested_status": "open", "allowed": []}
+
+
+async def test_skipping_a_step_lists_the_allowed_transitions(rpc) -> None:
+    error = tool_error(await rpc.tool("update_ticket_status", ticket_id="NXV-000482", status="resolved"))
+    assert error["code"] == "INVALID_TRANSITION"
+    assert error["details"]["allowed"] == ["in_progress", "discarded"]
 
 
 async def test_missing_ticket_is_not_found(rpc) -> None:
@@ -75,7 +83,8 @@ async def test_missing_ticket_is_not_found(rpc) -> None:
     [
         ("get_ticket", {"ticket_id": "482"}),
         ("update_ticket_status", {"ticket_id": "NXV-000482", "status": "SOLVED"}),
-        ("create_ticket", {"client_company": "Globex", "category": "OTHER", "description": "x", "agent_id": "AG-1"}),
+        ("create_ticket", {"title": "x", "description": "x", "category": "OTHER", "origin": "customer", "branch": "central"}),
+        ("create_ticket", {"title": "x", "description": "x", "category": "other", "origin": "customer", "branch": "hq"}),
         ("list_tickets", {"limit": 500}),
     ],
 )
@@ -88,11 +97,10 @@ async def test_validation_errors_have_their_own_code(rpc, fake_api, tool, argume
 
 async def test_blank_optional_fields_count_as_not_provided(rpc, fake_api) -> None:
     """Clientes con formulario (MCP Playground) mandan `""` en los opcionales sin rellenar."""
-    created = (await rpc.tool("create_ticket", client_company="Globex", category="BILLING",
-                              description="Factura duplicada", agent_id="AG-07", date=""))["structuredContent"]
-    assert created["status"] == "OPEN"
+    created = (await rpc.tool("create_ticket", title="Factura duplicada", description="Se cobró dos veces", category="process_error", origin="customer", branch="central", client_company=""))["structuredContent"]
+    assert created["status"] == "open"
     post = next(r for r in fake_api.requests if r.method == "POST" and r.url.path == "/api/incidents")
-    assert "date" not in json.loads(post.content)  # la API pone la fecha de hoy
+    assert "client_company" not in json.loads(post.content)  # opcional sin rellenar
 
     listed = await rpc.tool("list_tickets", status="", category="", client_company="", limit="")
     assert listed["structuredContent"]["count"] == len(fake_api.tickets)
@@ -102,8 +110,8 @@ async def test_blank_optional_fields_count_as_not_provided(rpc, fake_api) -> Non
     assert stock["structuredContent"]["count"] == 2
 
     # Un valor no vacío sigue validándose.
-    assert tool_error(await rpc.tool("create_ticket", client_company="Globex", category="BILLING",
-                                     description="x", agent_id="AG-07", date="14/11/2026"))["code"] == "VALIDATION_ERROR"
+    assert tool_error(await rpc.tool("create_ticket", title="x", description="x", category="nope",
+                                     origin="customer", branch="central"))["code"] == "VALIDATION_ERROR"
 
 
 # --- Scopes (mínimo privilegio) ----------------------------------------------
@@ -112,9 +120,9 @@ async def test_blank_optional_fields_count_as_not_provided(rpc, fake_api) -> Non
     ("scope", "tool", "arguments", "required"),
     [
         ("incidents:read inventory:read", "create_ticket",
-         {"client_company": "Globex", "category": "BILLING", "description": "x", "agent_id": "AG-1"}, "incidents:write"),
+         {"title": "x", "description": "x", "category": "other", "origin": "customer", "branch": "central"}, "incidents:write"),
         ("incidents:read inventory:read", "update_ticket_status",
-         {"ticket_id": "NXV-000482", "status": "CLOSED"}, "incidents:write"),
+         {"ticket_id": "NXV-000482", "status": "in_progress"}, "incidents:write"),
         ("inventory:read", "get_ticket", {"ticket_id": "NXV-000482"}, "incidents:read"),
         ("incidents:read incidents:write", "query_inventory", {"action": "list"}, "inventory:read"),
     ],
@@ -123,7 +131,7 @@ async def test_each_tool_requires_its_scope(http, fake_api, scope, tool, argumen
     error = tool_error(await Rpc(http, make_token(scope)).tool(tool, **arguments))
     assert error["code"] == "FORBIDDEN_SCOPE"
     assert error["details"]["required_scope"] == required
-    assert fake_api.tickets["NXV-000482"]["status"] == "OPEN"
+    assert fake_api.tickets[482]["status"] == "open"
 
 
 # --- Inventario (solo lectura) -----------------------------------------------

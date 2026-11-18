@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-BASE = "/api/incident-manager"
+BASE = "/api/incidents"
 
 
 def _create(client, payload, **overrides):

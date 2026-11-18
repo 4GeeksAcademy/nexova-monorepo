@@ -167,7 +167,7 @@ def test_invalid_rows_are_not_inserted_and_never_leak_email(seed_module, engine,
 
 def test_seed_summary_endpoint_matches_expected_totals(seed_module, engine, make_client):
     seed_module.run_seed(CSV, engine)
-    body = make_client().get("/api/incident-manager/summary").json()
+    body = make_client().get("/api/incidents/summary").json()
 
     assert body["total"] == 96
     assert body["by_status"] == {"open": 27, "in_progress": 0, "resolved": 56, "discarded": 13}
@@ -212,3 +212,99 @@ def test_database_check_constraints_reject_values_outside_the_briefing(engine):
             session.add(ManagedIncident(**{**base, column: bad}))
             with pytest.raises(IntegrityError):
                 session.commit()
+
+
+# --- empresa cliente --------------------------------------------------------
+
+
+def test_transform_keeps_the_client_company():
+    from nexova_shared.incident_csv import transform_csv_row
+
+    row, _ = transform_csv_row(_record(client_company="  FinServ Group "))
+    assert row.client_company == "FinServ Group"
+
+
+def test_seed_stores_the_client_company_of_every_row(seed_module, engine):
+    from incident_manager.models import ManagedIncident
+    from sqlmodel import Session, select
+
+    seed_module.run_seed(CSV, engine)
+    with Session(engine) as session:
+        companies = {r.client_company for r in session.exec(select(ManagedIncident)).all()}
+    assert None not in companies and len(companies) == 12  # las 12 empresas cliente del CSV
+
+
+def test_seed_backfills_company_on_rows_loaded_without_it(seed_module, engine):
+    from incident_manager.models import ManagedIncident
+    from sqlmodel import Session, select
+
+    seed_module.run_seed(CSV, engine)
+    with Session(engine) as session:  # simula la base cargada antes de existir la columna
+        for incident in session.exec(select(ManagedIncident)).all():
+            incident.client_company = None
+            session.add(incident)
+        session.commit()
+
+    report = seed_module.run_seed(CSV, engine)
+
+    assert report.inserted == 0 and report.backfilled == 96
+    with Session(engine) as session:
+        assert all(r.client_company for r in session.exec(select(ManagedIncident)).all())
+    assert seed_module.run_seed(CSV, engine).backfilled == 0  # y no repite el relleno
+
+
+def test_manual_company_is_never_overwritten_by_the_backfill(seed_module, engine):
+    from incident_manager.models import ManagedIncident
+    from sqlmodel import Session, select
+
+    seed_module.run_seed(CSV, engine)
+    with Session(engine) as session:
+        first = session.exec(select(ManagedIncident).order_by(ManagedIncident.id)).first()
+        first.client_company = "Empresa corregida a mano"
+        session.add(first)
+        session.commit()
+
+    seed_module.run_seed(CSV, engine)
+    with Session(engine) as session:
+        first = session.exec(select(ManagedIncident).order_by(ManagedIncident.id)).first()
+        assert first.client_company == "Empresa corregida a mano"
+
+
+# --- errores y códigos de salida -------------------------------------------
+
+
+def _run_cli(seed_module, tmp_path, csv_text: str | None, db: str | None = None) -> int:
+    csv = tmp_path / "in.csv"
+    if csv_text is not None:
+        csv.write_bytes(csv_text.encode("utf-8") if isinstance(csv_text, str) else csv_text)
+    with pytest.raises(SystemExit) as exit_info:
+        seed_module.main([str(csv), "--database-url", db or f"sqlite:///{tmp_path}/t.db"])
+    return exit_info.value.code
+
+
+def test_empty_csv_exits_with_error_and_clear_message(seed_module, tmp_path, capsys):
+    assert _run_cli(seed_module, tmp_path, "") == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error:") and "Traceback" not in err
+
+
+def test_csv_without_data_rows_exits_with_error(seed_module, tmp_path, capsys):
+    assert _run_cli(seed_module, tmp_path, "ticket_id,date,client_company\n") == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_non_utf8_csv_exits_with_error(seed_module, tmp_path, capsys):
+    csv = tmp_path / "in.csv"
+    csv.write_bytes(b"ticket_id,date\n\xff\xfe\x00bad\n")
+    with pytest.raises(SystemExit) as exit_info:
+        seed_module.main([str(csv), "--database-url", f"sqlite:///{tmp_path}/t.db"])
+    assert exit_info.value.code == 1
+    assert "UTF-8" in capsys.readouterr().err
+
+
+def test_unreachable_database_exits_with_error_without_credentials(seed_module, tmp_path, capsys):
+    code = _run_cli(seed_module, tmp_path, CSV.read_text(encoding="utf-8"),
+                    db="postgresql://usuario:secreto@127.0.0.1:1/x")  # secret-scan: allow (valor falso de prueba)
+    assert code in (1, 2)  # remota sin --yes (2) o conexión rechazada (1): nunca 0 ni traza
+    err = capsys.readouterr().err
+    assert "secreto" not in err and "Traceback" not in err

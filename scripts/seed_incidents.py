@@ -10,7 +10,8 @@ Carga el histórico de incidencias del helpdesk (CSV) en el gestor de incidencia
 - Es idempotente: cada fila se identifica por su `ticket_id` (o title +
   created_at) en la tabla `incident_seed_log`, de modo que ejecutarlo dos veces
   no duplica nada.
-- No toca el módulo anterior (tabla `incident`) ni escribe `customer_email`.
+- Guarda la empresa cliente (`client_company`) y rellena la de filas cargadas antes sin ella.
+- No toca la tabla `incident` (legacy) ni escribe `customer_email`.
 
 Uso:
     DATABASE_URL=sqlite:///local.db python scripts/seed_incidents.py
@@ -31,6 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for _path in (
+    ROOT / "scripts",  # `_cli` (también al importar el script desde un test)
     ROOT / "services" / "api",
     ROOT / "packages" / "shared",
     ROOT / "packages" / "incidents-analyzer",
@@ -39,10 +41,12 @@ for _path in (
         sys.path.insert(0, str(_path))
 
 from sqlalchemy.engine import Engine  # noqa: E402
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine, select  # noqa: E402
 
 from incident_manager.models import IncidentSeedLog, ManagedIncident  # noqa: E402
-from incidents_analyzer import load_records_from_path  # noqa: E402
+from _cli import fail, reason  # noqa: E402
+from incidents_analyzer import EmptyFileError, MissingHeaderError, load_records_from_path  # noqa: E402
 from nexova_shared.incident_csv import transform_csv_row  # noqa: E402
 from nexova_shared.incident_domain import (  # noqa: E402
     EXPECTED_SEED_BY_CATEGORY,
@@ -65,6 +69,7 @@ class SeedReport:
     total_rows: int = 0
     inserted: int = 0
     already_present: int = 0
+    backfilled: int = 0  # ya cargadas sin empresa cliente: se completa desde el CSV
     duplicated_in_file: int = 0
     invalid: list[InvalidRow] = field(default_factory=list)
     by_status: dict[str, int] = field(default_factory=dict)
@@ -114,8 +119,14 @@ def run_seed(csv_path: Path, engine: Engine) -> SeedReport:
                 continue
             seen_in_file.add(row.source_key)
 
-            if session.get(IncidentSeedLog, row.source_key) is not None:
+            logged = session.get(IncidentSeedLog, row.source_key)
+            if logged is not None:
                 report.already_present += 1
+                existing = session.get(ManagedIncident, logged.incident_id)
+                if existing is not None and not existing.client_company:
+                    existing.client_company = row.client_company
+                    session.add(existing)
+                    report.backfilled += 1
                 continue
 
             incident = ManagedIncident(
@@ -125,6 +136,7 @@ def run_seed(csv_path: Path, engine: Engine) -> SeedReport:
                 status=row.status,
                 origin=row.origin,
                 branch=row.branch,
+                client_company=row.client_company,
                 created_at=row.created_at,
                 updated_at=row.created_at,  # BRIEFING: updated_at = created_at al insertar
             )
@@ -143,6 +155,8 @@ def print_report(report: SeedReport) -> None:
     print(f"Filas leídas del CSV:        {report.total_rows}")
     print(f"Insertadas:                  {report.inserted}")
     print(f"Ya existían (omitidas):      {report.already_present}")
+    if report.backfilled:
+        print(f"Empresa cliente completada:  {report.backfilled}")
     if report.duplicated_in_file:
         print(f"Duplicadas dentro del CSV:   {report.duplicated_in_file}")
     print(f"Inválidas (no insertadas):   {len(report.invalid)}")
@@ -189,7 +203,14 @@ def main(argv: list[str] | None = None) -> int:
             "añade --yes para confirmar la carga"
         )
 
-    report = run_seed(args.csv, engine)
+    try:
+        report = run_seed(args.csv, engine)
+    except (EmptyFileError, MissingHeaderError) as exc:
+        fail(f"el CSV no es utilizable: {exc}")
+    except (OSError, UnicodeDecodeError) as exc:
+        fail(f"no se pudo leer {args.csv} ({reason(exc)}); debe ser un CSV UTF-8.")
+    except SQLAlchemyError as exc:  # nada se confirma: la carga es una sola transacción
+        fail(f"no se pudo cargar en la base de datos ({reason(exc)}); no se guardó ninguna fila.")
     print_report(report)
     return 0 if report.matches_briefing else 1
 

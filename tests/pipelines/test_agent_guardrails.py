@@ -345,7 +345,7 @@ def test_pricing_document_is_not_retrieved_for_external_users() -> None:
 def test_ticket_query_is_forced_to_the_users_company() -> None:
     services = FakeMCP([_ticket("RetailMax Corp")])
     h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"),
-               route=RouteDecision(tickets=True, ticket_status="OPEN", client_company="InsureNow Group"),
+               route=RouteDecision(tickets=True, ticket_status="open", client_company="InsureNow Group"),
                services=services)
     run_agent("¿Cuántos tickets abiertos hay?", graph=h.compiled, tenant=RETAIL)
     name, arguments = services.calls[-1]
@@ -367,7 +367,7 @@ def test_foreign_ticket_by_id_is_not_found(isolated_logs: Path) -> None:
 def test_user_without_company_cannot_read_tickets() -> None:
     services = FakeMCP([_ticket("RetailMax Corp")])
     h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"),
-               route=RouteDecision(tickets=True, ticket_status="OPEN"), services=services)
+               route=RouteDecision(tickets=True, ticket_status="open"), services=services)
     result = run_agent("¿Cuántos tickets abiertos hay?", graph=h.compiled, tenant=NO_COMPANY)
     assert services.calls == []
     assert "empresa cliente asociada" in result.answer
@@ -622,7 +622,7 @@ def _decisions(tmp_path: Path) -> list[dict[str, Any]]:
 def test_decision_log_records_what_the_agent_did_and_why(isolated_logs: Path) -> None:
     services = FakeMCP([_ticket("RetailMax Corp")])
     h = _graph(Guardrails(use_llm_scope=False, small_talk_fn=lambda q: "x"),
-               route=RouteDecision(tickets=True, ticket_status="OPEN", method="llm"), services=services)
+               route=RouteDecision(tickets=True, ticket_status="open", method="llm"), services=services)
     question = "¿Cuántos tickets abiertos tengo? Soy ana.garcia@retailmax.com"
     result = run_agent(question, graph=h.compiled, tenant=RETAIL, user_id="u-ana")
 
@@ -683,9 +683,9 @@ def _uuid(n: int) -> str:
 
 
 def _ticket(company: str) -> dict[str, Any]:
-    return {"ticket_id": "NXV-000054", "date": "2026-11-10", "client_company": company, "category": "ACCESS",
-            "description": "No carga el portal.", "agent_id": "AGT-03", "status": "OPEN",
-            "satisfaction_score": None, "updated_at": "2026-11-12T10:00:00Z"}
+    return {"ticket_id": "NXV-000054", "title": "No carga el portal", "description": "No carga el portal.",
+            "category": "technical_failure", "status": "open", "origin": "customer", "branch": "central",
+            "client_company": company, "created_at": "2026-11-10T09:00:00Z", "updated_at": "2026-11-12T10:00:00Z"}
 
 
 class FakeMCP:

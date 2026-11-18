@@ -19,7 +19,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -104,7 +103,7 @@ def test_agent_tools_only_call_read_only_mcp_tools_with_a_read_only_token() -> N
 
     mcp = RecordingMCP()
     lookup_tickets(TicketQuery(ticket_id="NXV-000054"), call_tool=mcp)
-    lookup_tickets(TicketQuery(status="OPEN", client_company="RetailMax Corp"), call_tool=mcp)
+    lookup_tickets(TicketQuery(status="open", client_company="RetailMax Corp"), call_tool=mcp)
     lookup_inventory(InventoryQuery(product="Dell Latitude"), call_tool=mcp)
 
     assert set(mcp.calls) <= READ_ONLY_TOOLS
@@ -119,22 +118,23 @@ def incidents_api():
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
 
-    from app.routers import incidents
     from database import get_db
-    from models import Incident, Role, User
+    from incident_manager.models import ManagedIncident
+    from incident_manager.router import router as incidents_router
+    from models import Role, User
     from security import get_current_user
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    SQLModel.metadata.create_all(engine, tables=[Incident.__table__])
+    SQLModel.metadata.create_all(engine, tables=[ManagedIncident.__table__])
     with Session(engine) as session:
-        session.add(Incident(ticket_id="NXV-000001", date=date(2026, 11, 1), client_company="RetailMax Corp",
-                             category="COMPLAINT", description="Queja por el trato recibido", agent_id="AGT-01",
-                             status="OPEN"))
+        session.add(ManagedIncident(title="Queja por el trato recibido", description="Queja por el trato recibido",
+                                    category="client_complaint", origin="customer", branch="central",
+                                    client_company="RetailMax Corp"))
         session.commit()
 
     def _client(role: Role, company: str | None) -> TestClient:
         app = FastAPI()
-        app.include_router(incidents.router)
+        app.include_router(incidents_router)
 
         def _db():
             with Session(engine) as session:
@@ -149,12 +149,12 @@ def incidents_api():
     return _client
 
 
-def test_only_identified_support_staff_can_close_a_complaint_ticket(incidents_api) -> None:
+def test_only_identified_support_staff_can_move_a_complaint_ticket(incidents_api) -> None:
     from models import Role
 
     client = incidents_api(Role.USER, "RetailMax Corp")
-    assert client.patch("/api/incidents/NXV-000001/status", json={"status": "CLOSED"}).status_code == 403
+    assert client.patch("/api/incidents/1/status", json={"status": "in_progress"}).status_code == 403
 
     staff = incidents_api(Role.MANAGER, None)
-    response = staff.patch("/api/incidents/NXV-000001/status", json={"status": "CLOSED"})
-    assert response.status_code == 200 and response.json()["status"] == "CLOSED"
+    response = staff.patch("/api/incidents/1/status", json={"status": "in_progress"})
+    assert response.status_code == 200 and response.json()["status"] == "in_progress"

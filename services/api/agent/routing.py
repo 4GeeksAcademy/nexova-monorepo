@@ -46,7 +46,12 @@ _PRODUCT_RE = re.compile(
     r"(?P<product>[\wÁÉÍÓÚÑáéíóúñ\-\s]{2,60}?)\s*(?:\?|$|\ben\b|\bpara\b)",
     re.IGNORECASE,
 )
-_STATUS_WORDS = {"OPEN": r"abiert", "CLOSED": r"cerrad", "DISCARDED": r"descartad"}
+_STATUS_WORDS = {
+    "open": r"abiert",
+    "in_progress": r"en curso|en progreso|en gesti[oó]n",
+    "resolved": r"resuelt|cerrad",
+    "discarded": r"descartad",
+}
 
 
 # Letras (con tildes), dígitos, espacios y puntuación de nombres de empresa o producto.
@@ -125,7 +130,7 @@ solo decides qué fuentes hacen falta para responderla.
 Fuentes:
 - "rag": base de conocimiento estable (servicios, tarifas, políticas, SLA, manejo de \
 objeciones, procedimientos).
-- "tickets": gestor de incidentes en vivo (estado, categoría, cliente, fechas o agente de \
+- "tickets": gestor de incidencias en vivo (estado, categoría, origen, sede, cliente o fechas de \
 tickets de soporte concretos, o listados de tickets por estado/categoría/cliente). \
 Los ids tienen formato NXV-000123.
 - "inventory": gestor de inventario en vivo (stock disponible de un producto o material).
@@ -136,8 +141,9 @@ política). Si no encaja en ninguna, usa solo "rag".
 Responde SOLO un objeto JSON, sin texto adicional, con estas claves:
 {"rag": bool, "tickets": bool, "inventory": bool,
  "ticket_id": "NXV-000123" | null,
- "ticket_status": "OPEN" | "CLOSED" | "DISCARDED" | null,
- "ticket_category": "TECHNICAL" | "BILLING" | "ACCESS" | "HR_QUERY" | "COMPLAINT" | null,
+ "ticket_status": "open" | "in_progress" | "resolved" | "discarded" | null,
+ "ticket_category": "technical_failure" | "process_error" | "client_complaint" | \
+"candidate_issue" | "staff_issue" | "sla_breach" | "data_quality" | "other" | null,
  "client_company": string | null,
  "product": string | null}
 """

@@ -158,7 +158,7 @@ graph TD;
 ### Enrutamiento (`agent/routing.py`)
 
 1. **LLM:** el modelo de generación del RAG (`get_llm_client` y `generation_model`, a través del bridge) devuelve un JSON que se valida como `RouteDecision`. La decisión incluye `ticket_id`, filtros y `product`.
-2. **Reglas de respaldo:** se usan si el LLM falla, tarda o responde algo inválido. Detectan el patrón `NXV-…` o "ticket N", las palabras "tickets" o "incidencias", y las palabras "stock", "inventario" o "quedan". Si nada coincide, la pregunta va al RAG.
+2. **Reglas de respaldo:** se usan si el LLM falla, tarda o responde algo inválido. Detectan el patrón `NXV-…` o "ticket N" (referencia de la incidencia: `NXV-` + id numérico con 6 dígitos), las palabras "tickets" o "incidencias", y las palabras "stock", "inventario" o "quedan". Si nada coincide, la pregunta va al RAG.
 3. **Id explícito:** si la pregunta menciona un id de ticket, ese id manda sobre lo que extrajo el modelo.
 
 El usuario nunca indica la fuente. En el trace, `route.method` dice si decidió el LLM (`llm`) o las reglas (`rules`).
@@ -167,7 +167,7 @@ El usuario nunca indica la fuente. En el trace, `route.method` dice si decidió 
 
 | Tool | Entrada (Pydantic) | Salida (Pydantic) |
 |---|---|---|
-| `lookup_tickets` | `TicketQuery{ticket_id: NXV-\d{6}?, status?, category?, client_company?, limit}` | `TicketToolResult{status, query, tickets: [TicketInfo{ticket_id, date, client_company, category, description, agent_id, status, satisfaction_score, updated_at}], detail, duration_ms}` |
+| `lookup_tickets` | `TicketQuery{ticket_id: NXV-\d{6}?, status?, category?, client_company?, limit}` | `TicketToolResult{status, query, tickets: [TicketInfo{ticket_id, title, description, category, status, origin, branch, client_company?, created_at, updated_at}], detail, duration_ms}` |
 | `lookup_inventory` | `InventoryQuery{product?}` | `InventoryToolResult{status, query, products: [ProductStock{id, name, sku, category, office, current_stock, min_stock_threshold, below_threshold}], detail, duration_ms}` |
 
 > **Actualizado en la Parte 3:** las tools ya no llaman a la API por HTTP. Pasan por el MCP Server `mcps/nexova-tools` (ver la sección siguiente). Los contratos de esta tabla no cambiaron.
@@ -326,3 +326,8 @@ receive_question → guard_input ─┬─(bloqueo)→ guard_refuse ─┐
 - `run_agent(..., tenant=Tenant(...))`: la API pasa siempre el del usuario autenticado (`User.client_company` + rol). La tool de tickets fuerza la empresa del usuario y responde `forbidden` a un usuario externo sin empresa.
 - `POST /agent/query` devuelve además `guardrail` (`action` + `category`) cuando el mensaje se rechazó o redirigió. `GET /agent/guardrails/summary` (personal interno) cuenta las activaciones.
 - El trace añade `guard` (veredicto de entrada) y `guardrails` (eventos de la corrida).
+
+
+## Migración al gestor de incidencias (`/api/incidents`)
+
+Las tools de tickets ya no leen el módulo antiguo (`NXV-######`, `OPEN/CLOSED/DISCARDED`, tabla `incident`) sino el gestor de incidencias (`incident_records`): estados `open | in_progress | resolved | discarded`, ocho categorías, `origin`, `branch` y `client_company` opcional. La API identifica cada incidencia con un `id` entero; el MCP lo presenta como la referencia `NXV-` + id con 6 dígitos (`ticket_ref` / `ticket_pk`, único punto de conversión), así que prompts, guardrails y referencias de los usuarios no cambian de forma. Los números **no** coinciden con los del módulo antiguo. «Cerrado» se interpreta como `resolved`. La tenancy no cambia: una incidencia sin `client_company` solo la ve el personal interno. Los Literal del agente se verifican contra `nexova_shared` en `tests/pipelines/test_agent_incident_contract.py`. Los traces grabados con el LLM real (`tests/pipelines/fixtures/agent_traces/`) conservan el vocabulario antiguo como evidencia histórica; no se pueden regrabar sin Logto ni cuota del proveedor.

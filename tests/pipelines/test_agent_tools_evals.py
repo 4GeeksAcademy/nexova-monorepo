@@ -44,13 +44,14 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "agent_traces"
 
 TICKET = {
     "ticket_id": "NXV-000482",
-    "date": "2024-03-14",
-    "client_company": "FinServ Group",
-    "category": "ACCESS",
+    "title": "Role permissions not updated",
     "description": "Role permissions not updated after department change",
-    "agent_id": "AGT-08",
-    "status": "OPEN",
-    "satisfaction_score": None,
+    "category": "technical_failure",
+    "status": "open",
+    "origin": "customer",
+    "branch": "central",
+    "client_company": "FinServ Group",
+    "created_at": "2024-03-14T00:00:00Z",
     "updated_at": "2026-11-12T10:00:00Z",
 }
 PRODUCTS = [
@@ -149,9 +150,9 @@ def test_T1_ticket_question_uses_ticket_tool_not_rag() -> None:
     ]
     assert nodes.RETRIEVE not in trace["nodes"] and rag.retrieve_calls == []
     tool = _tool_step(trace, nodes.LOOKUP_TICKETS)
-    assert tool["status"] == "ok" and tool["tickets"][0]["status"] == "OPEN"
+    assert tool["status"] == "ok" and tool["tickets"][0]["status"] == "open"
     # La respuesta se genera con el dato en vivo del gestor, no con la base de conocimiento.
-    assert "estado: OPEN" in result.answer
+    assert "estado: open" in result.answer
 
 
 def test_T2_policy_question_uses_rag_not_tools() -> None:
@@ -183,7 +184,7 @@ def test_T5_mixed_question_uses_tool_then_rag_in_order() -> None:
     assert trace["nodes"].index(nodes.LOOKUP_TICKETS) < trace["nodes"].index(nodes.RETRIEVE)
     sources = [c["source_document"] for c in rag.generate_calls[0]]
     assert sources == [nodes.TICKETS_SOURCE_LABEL, "hiring-process-sla"]
-    assert "estado: OPEN" in result.answer and "promedios" in result.answer
+    assert "estado: open" in result.answer and "promedios" in result.answer
 
 
 def test_T6_stock_question_uses_inventory_tool() -> None:
@@ -220,7 +221,7 @@ def test_T3_incidents_timeout_routes_to_honest_fallback() -> None:
     assert _tool_step(trace, nodes.LOOKUP_TICKETS)["status"] == "timeout"
     assert rag.generate_calls == []  # sin LLM: nada que pueda inventar un estado
     assert "No pude confirmar el estado del ticket NXV-000482 ahora mismo" in result.answer
-    for invented in ("OPEN", "CLOSED", "DISCARDED", "abierto", "cerrado"):
+    for invented in ("open", "in_progress", "resolved", "discarded", "abierto", "cerrado"):
         assert invented not in result.answer
 
 
@@ -372,7 +373,9 @@ def test_T9_real_ticket_run_reports_the_live_status() -> None:
     assert tool["status"] == "ok"
     live_status = tool["tickets"][0]["status"]
     assert live_status in trace["final_answer"] or {
-        "OPEN": "abierto", "CLOSED": "cerrado", "DISCARDED": "descartado"
+        # Los traces reales grabados antes de la migración usan el vocabulario antiguo (OPEN/CLOSED/…).
+        "open": "abierto", "in_progress": "en curso", "resolved": "resuelto", "discarded": "descartado",
+        "OPEN": "abierto", "CLOSED": "cerrado", "DISCARDED": "descartado",
     }[live_status] in trace["final_answer"].lower()
 
 

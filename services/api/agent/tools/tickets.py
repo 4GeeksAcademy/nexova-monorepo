@@ -1,5 +1,5 @@
 """
-Tool de tickets: consulta en vivo el Incidents Manager a través del MCP Server
+Tool de tickets: consulta en vivo el gestor de incidencias a través del MCP Server
 `mcps/nexova-tools` (solo lectura para el agente).
 
     get_ticket(ticket_id)                                   (por id)
@@ -12,7 +12,7 @@ El agente solo tiene el scope `incidents:read`: aunque el MCP Server expone
 from __future__ import annotations
 
 import time
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
@@ -22,8 +22,19 @@ from agent.tools.transport import ToolCallError, ToolStatus
 
 TICKET_ID_PATTERN = r"^NXV-\d{6}$"
 
-TicketStatus = Literal["OPEN", "CLOSED", "DISCARDED"]
-TicketCategory = Literal["TECHNICAL", "BILLING", "ACCESS", "HR_QUERY", "COMPLAINT"]
+# Mismos valores que `packages/shared/nexova_shared/incident_domain.py` (fuente de verdad; un
+# test comprueba que coinciden). El agente no importa ese paquete: el worker no lo monta.
+TicketStatus = Literal["open", "in_progress", "resolved", "discarded"]
+TicketCategory = Literal[
+    "technical_failure",
+    "process_error",
+    "client_complaint",
+    "candidate_issue",
+    "staff_issue",
+    "sla_breach",
+    "data_quality",
+    "other",
+]
 
 
 class TicketQuery(BaseModel):
@@ -37,16 +48,18 @@ class TicketQuery(BaseModel):
 
 
 class TicketInfo(BaseModel):
-    """Salida: los mismos campos que expone el gestor de incidentes (sin emails)."""
+    """Salida: los campos que expone el gestor de incidencias. `ticket_id` es la referencia
+    `NXV-NNNNNN` (el MCP la deriva del `id` numérico de la API)."""
 
     ticket_id: str
-    date: date
-    client_company: str
-    category: str
+    title: str
     description: str
-    agent_id: str
+    category: str
     status: str
-    satisfaction_score: int | None = None
+    origin: str
+    branch: str
+    client_company: str | None = None
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
 

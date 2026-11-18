@@ -50,6 +50,10 @@ class ManagedIncident(SQLModel, table=True):
     status: str = Field(default="open", index=True)
     origin: str = Field(index=True)
     branch: str = Field(index=True)
+    # Empresa cliente (opcional): conserva el aislamiento por cliente del agente
+    # (auditoría OWASP C2) y alimenta la lista de clientes de RFP. Fuera de los
+    # campos del README; nunca es obligatoria.
+    client_company: str | None = Field(default=None, index=True, max_length=100)
     created_at: datetime = Field(
         default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False
     )

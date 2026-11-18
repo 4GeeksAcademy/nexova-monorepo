@@ -46,20 +46,23 @@ from agent.tools.mcp_client import ClientCredentialsAuth, NexovaMcpClient  # noq
 from agent.tools.tickets import TicketQuery, lookup_tickets  # noqa: E402
 
 CLIENT_ID, CLIENT_SECRET = "nexova-agent", "test-secret-no-real"
-TICKET = {"ticket_id": "NXV-000482", "date": "2024-03-14", "client_company": "FinServ Group",
-          "category": "ACCESS", "description": "Role permissions not updated", "agent_id": "AGT-08",
-          "status": "OPEN", "satisfaction_score": None, "updated_at": "2026-11-12T10:00:00Z"}
+TICKET = {"ticket_id": "NXV-000482", "title": "Role permissions not updated",
+          "description": "Role permissions not updated after department change",
+          "category": "technical_failure", "status": "open", "origin": "customer", "branch": "central",
+          "client_company": "FinServ Group", "created_at": "2024-03-14T00:00:00Z",
+          "updated_at": "2026-11-12T10:00:00Z"}
 
 
 class Ticket(BaseModel):
     ticket_id: str
-    date: str
-    client_company: str
-    category: str
+    title: str
     description: str
-    agent_id: str
+    category: str
     status: str
-    satisfaction_score: int | None = None
+    origin: str
+    branch: str
+    client_company: str | None = None
+    created_at: str | None = None
     updated_at: str | None = None
 
 
@@ -107,7 +110,7 @@ class FakeAuthorizationAndMcpServer:
         @mcp.tool()
         def list_tickets(status: str | None = None, category: str | None = None,
                          client_company: str | None = None, limit: int = 10) -> TicketList:
-            if status == "CLOSED":  # simula un token sin el scope necesario
+            if status == "resolved":  # simula un token sin el scope necesario
                 raise _error("FORBIDDEN_SCOPE")
             return TicketList(count=1, tickets=[Ticket(**TICKET)])
 
@@ -196,7 +199,7 @@ def test_tickets_and_inventory_through_real_mcp_client(fake_server) -> None:
     client = _client(base)
 
     ticket = lookup_tickets(TicketQuery(ticket_id="NXV-000482"), call_tool=client.call_tool)
-    assert ticket.status == "ok" and ticket.tickets[0].status == "OPEN"
+    assert ticket.status == "ok" and ticket.tickets[0].status == "open"
 
     listed = lookup_tickets(TicketQuery(client_company="FinServ"), call_tool=client.call_tool)
     assert listed.status == "ok" and listed.tickets[0].ticket_id == "NXV-000482"
@@ -232,7 +235,7 @@ def test_mcp_error_codes_map_to_tool_status(fake_server) -> None:
     missing = lookup_tickets(TicketQuery(ticket_id="NXV-999999"), call_tool=client.call_tool)
     assert missing.status == "not_found" and missing.detail == "MCP NOT_FOUND"
 
-    forbidden = lookup_tickets(TicketQuery(status="CLOSED"), call_tool=client.call_tool)
+    forbidden = lookup_tickets(TicketQuery(status="resolved"), call_tool=client.call_tool)
     assert forbidden.status == "error" and forbidden.detail == "MCP FORBIDDEN_SCOPE"
 
 
