@@ -55,6 +55,16 @@ from tasks import router as tasks
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api.timing")
 
+# El gestor de incidencias necesita `packages/shared` (en Docker, montado en
+# /packages/shared). Si falta, la API arranca igual sin ese router en vez de caerse.
+try:
+    from incident_manager import router as incident_manager
+except ImportError:
+    incident_manager = None
+    logging.getLogger("api.startup").warning(
+        "Gestor de incidencias desactivado: no se pudo importar `nexova_shared` (packages/shared)."
+    )
+
 # Muestreo de api_request_completed (respuestas 2xx/3xx) — 100% en local para
 # poder verlo en la verificación manual; se baja en producción vía env var.
 API_TELEMETRY_SAMPLE_RATE = float(os.environ.get("API_TELEMETRY_SAMPLE_RATE", "1.0"))
@@ -217,6 +227,8 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(profiles.router)
 app.include_router(incidents.router)
+if incident_manager is not None:
+    app.include_router(incident_manager.router)
 app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(telemetry.router)
