@@ -39,13 +39,13 @@ export default function ProductsTable({ products }: { products: Asset[] }) {
                 <div className="flex gap-2">
                   <Link
                     href={`/inventory/orders/inbound?asset_id=${asset.id}`}
-                    className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-medium text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-1 text-xs font-medium text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
                   >
                     Registrar entrada
                   </Link>
                   <Link
                     href={`/inventory/orders/outbound?asset_id=${asset.id}`}
-                    className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-medium text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-1 text-xs font-medium text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
                   >
                     Registrar salida
                   </Link>

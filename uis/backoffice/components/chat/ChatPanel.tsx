@@ -105,7 +105,7 @@ export default function ChatPanel() {
           <button
             type="button"
             onClick={newChat}
-            className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
+            className="rounded-lg border border-stone-300 bg-white px-3 py-1 text-xs text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
           >
             Nueva conversación
           </button>
@@ -172,7 +172,7 @@ export default function ChatPanel() {
           <button
             type="submit"
             disabled={!canSend}
-            className={`rounded-full px-5 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`rounded-lg px-5 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
               generating ? "bg-amber-600 hover:bg-amber-700" : "bg-teal-700 hover:bg-teal-800"
             }`}
           >
@@ -185,7 +185,7 @@ export default function ChatPanel() {
                 key={example}
                 type="button"
                 onClick={() => setDraft(example)}
-                className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
+                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 transition hover:border-teal-600 hover:text-teal-700"
               >
                 {example}
               </button>

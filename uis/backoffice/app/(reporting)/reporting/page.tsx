@@ -327,7 +327,7 @@ export default function ReportingPage() {
   const canGoForward = nextWeek !== null && nextWeek <= currentWeekStart();
 
   const navButton =
-    "rounded-full border border-stone-300 bg-white px-4 py-1.5 text-sm text-stone-700 transition hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-40";
+    "rounded-lg border border-stone-300 bg-white px-4 py-1.5 text-sm text-stone-700 transition hover:border-teal-600 disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <section className="px-6 py-12">

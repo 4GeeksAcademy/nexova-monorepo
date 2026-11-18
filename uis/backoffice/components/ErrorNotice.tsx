@@ -34,7 +34,7 @@ export default function ErrorNotice({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-full border border-red-300 bg-white px-4 py-1.5 font-medium text-red-700 transition hover:bg-red-100"
+            className="rounded-lg border border-red-300 bg-white px-4 py-1.5 font-medium text-red-700 transition hover:bg-red-100"
           >
             {retryLabel}
           </button>

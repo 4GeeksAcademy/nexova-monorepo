@@ -65,7 +65,7 @@ export default function IncidentsTable({ incidents, pendingIds, onChangeStatus }
                     onChange={(e) => {
                       if (isStatus(e.target.value)) onChangeStatus(incident, e.target.value);
                     }}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium focus:outline-none disabled:cursor-not-allowed ${STATUS_TONE[incident.status]} ${pending ? "opacity-60" : ""}`}
+                    className={`rounded-lg border px-3 py-1 text-xs font-medium focus:outline-none disabled:cursor-not-allowed ${STATUS_TONE[incident.status]} ${pending ? "opacity-60" : ""}`}
                   >
                     {options.map((status) => (
                       <option key={status} value={status}>

@@ -142,7 +142,7 @@ export default function TelemetryPage() {
                 type="button"
                 onClick={() => setRange(r.id)}
                 aria-pressed={range === r.id}
-                className={`rounded-full border px-4 py-1.5 text-sm transition ${
+                className={`rounded-lg border px-4 py-1.5 text-sm transition ${
                   range === r.id
                     ? "border-teal-600 bg-teal-600 text-white"
                     : "border-stone-300 bg-white text-stone-700 hover:border-teal-600"
