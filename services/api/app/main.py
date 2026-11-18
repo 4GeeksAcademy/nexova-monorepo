@@ -42,6 +42,7 @@ from agent.graph import get_agent_graph
 from app.routers import incidents
 from chat import router as chat
 from database import create_db_and_tables
+from http_security import allowed_origins, docs_enabled, security_headers
 from knowledge import router as knowledge
 from models import HealthResponse
 from reporting import router as reporting
@@ -82,10 +83,15 @@ def _emit_telemetry_in_background(event_type: str, **kwargs: Any) -> None:
         None, partial(log_telemetry_event, event_type, **kwargs)
     )
 
+_DOCS = docs_enabled()
 app = FastAPI(
     title="Nexova API",
     description="API centralizada de Nexova — soporte, operaciones y más.",
     version="0.1.0",
+    # Auditoría OWASP (A05): sin documentación pública en producción (ENABLE_API_DOCS=false).
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+    openapi_url="/openapi.json" if _DOCS else None,
 )
 
 
@@ -194,17 +200,17 @@ def on_startup() -> None:
     get_agent_graph()
 
 # Orígenes permitidos para el frontend (Next.js en desarrollo).
-# En producción, sustituir por el dominio real del backoffice.
-ALLOWED_ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS", "http://localhost:3000"
-).split(",")
+# En producción, sustituir por el dominio real del backoffice. Nunca `*`.
+ALLOWED_ORIGINS = allowed_origins()
+
+app.middleware("http")(security_headers)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
 )
 
 app.include_router(auth.router)

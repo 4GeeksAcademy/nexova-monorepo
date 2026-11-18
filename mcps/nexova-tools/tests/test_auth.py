@@ -61,6 +61,23 @@ async def test_cors_preflight_does_not_require_token(http) -> None:
     assert "WWW-Authenticate" in rejected.headers["access-control-expose-headers"]
 
 
+async def test_cors_rejects_unknown_browser_origins(http) -> None:
+    """Auditoría OWASP (H4): antes `allow_origins=["*"]`; ahora solo `MCP_ALLOWED_ORIGINS`."""
+    preflight = await http.options(
+        "/mcp",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST",
+                 "Access-Control-Request-Headers": "authorization,content-type"},
+    )
+    assert preflight.status_code == 400
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+def test_wildcard_origin_is_never_configured(monkeypatch) -> None:
+    from nexova_mcp.config import _origins
+
+    assert _origins("*, https://a.example/ ,") == ("https://a.example",)
+
+
 async def test_identity_is_per_request(http, caplog) -> None:
     """Modo stateless: cada petición usa la identidad de su propio token."""
     caplog.set_level("INFO", logger="nexova_mcp.audit")

@@ -128,5 +128,31 @@ Responde SOLO con JSON en español:
 {"summary_for_sales": str, "next_steps": [str]}"""
 
 
+def _neutralize(text: str) -> str:
+    """Neutraliza las frases con forma de instrucción con los MISMOS detectores que el agente.
+
+    `agent.guardrails.isolation` vive en `services/api`, que está en el path de la
+    API y del worker (misma imagen). Fuera de ellos (CLI local del pipeline) solo
+    se aplica el escape de etiquetas, y el código sigue decidiendo igual.
+    """
+    try:
+        from agent.guardrails.isolation import sanitize_text
+    except ImportError:  # pragma: no cover - ejecución del pipeline sin services/api
+        return text
+    return sanitize_text(text)[0]
+
+
+def escape_markup(text: str) -> str:
+    """`<`/`>` → `‹`/`›`: el documento no puede cerrar `</documento>` ni abrir etiquetas falsas."""
+    return (text or "").replace("<", "‹").replace(">", "›")
+
+
 def wrap_document(text: str) -> str:
-    return f"<documento>\n{text}\n</documento>"
+    """Bloque de datos para el LLM (auditoría OWASP, hallazgo C6 — LLM01 prompt injection).
+
+    El texto viene de un tercero (el PDF de un cliente, o un borrador generado a
+    partir de él): se neutralizan las instrucciones incrustadas y se escapan las
+    etiquetas. Las citas literales se siguen validando contra el documento
+    original (`nodes.quote_in_document`), no contra este bloque.
+    """
+    return f"<documento>\n{escape_markup(_neutralize(text))}\n</documento>"

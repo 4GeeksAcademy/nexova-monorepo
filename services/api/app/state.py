@@ -14,15 +14,16 @@ from threading import Lock
 from typing import Any, Optional
 
 _lock = Lock()
-_last_summary: Optional[dict[str, Any]] = None
+# Un resumen por usuario: el export de una persona nunca devuelve el análisis de
+# otra (auditoría OWASP, hallazgo C2).
+_last_summaries: dict[str, dict[str, Any]] = {}
 
 
-def set_last_summary(summary: dict[str, Any]) -> None:
-    global _last_summary
+def set_last_summary(summary: dict[str, Any], *, owner: str) -> None:
     with _lock:
-        _last_summary = summary
+        _last_summaries[owner] = summary
 
 
-def get_last_summary() -> Optional[dict[str, Any]]:
+def get_last_summary(*, owner: str) -> Optional[dict[str, Any]]:
     with _lock:
-        return _last_summary
+        return _last_summaries.get(owner)

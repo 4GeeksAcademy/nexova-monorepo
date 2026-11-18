@@ -19,6 +19,7 @@ from tinydb import Query, TinyDB
 
 from models import DeleteResponse, Role, User, UserCreate, UserRead, UserRegistered, UserUpdate
 from routes.profiles import create_profile, delete_profile_by_user_id
+from authz import require_admin
 from security import get_current_user, hash_password
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "users.json"
@@ -118,7 +119,8 @@ def create_user(payload: UserCreate) -> UserRegistered:
 
 
 @router.get("", response_model=list[UserRead])
-def list_users(current_user: User = Depends(get_current_user)) -> list[UserRead]:
+def list_users(current_user: User = Depends(require_admin)) -> list[UserRead]:
+    """Solo administradores: el listado expone email, rol y estado de todas las cuentas (OWASP A01)."""
     db, table = _get_table()
     try:
         return [UserRead.model_validate(doc) for doc in table.all()]
@@ -128,6 +130,7 @@ def list_users(current_user: User = Depends(get_current_user)) -> list[UserRead]
 
 @router.get("/{user_id}", response_model=UserRead)
 def get_user(user_id: str, current_user: User = Depends(get_current_user)) -> UserRead:
+    _require_self_or_admin(user_id, current_user)  # OWASP A01: sin IDOR sobre otras cuentas
     user = get_user_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")

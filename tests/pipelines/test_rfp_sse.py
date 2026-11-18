@@ -204,7 +204,7 @@ def _app(reader, user=None, override_auth: bool = True):
     from rfp import events as rfp_events, router as rfp_router
     from security import get_current_user
 
-    user = user or User(id="u1", email="ventas@nexova-solutions.com", hashed_password="x", role=Role.USER)
+    user = user or User(id="u1", email="ventas@nexova-solutions.com", hashed_password="x", role=Role.MANAGER)  # staff (OWASP C1)
     app = FastAPI()
     app.include_router(rfp_router.router)
     if override_auth:

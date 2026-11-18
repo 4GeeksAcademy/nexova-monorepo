@@ -29,7 +29,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import cache
 from models import User
-from security import get_current_user
+from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
 from telemetry import analysis
 from telemetry_store import TelemetryRejected, bulk_insert, to_row
 
@@ -168,7 +168,7 @@ def _build_report(start: datetime, end: datetime) -> dict[str, Any]:
 def get_telemetry_report(
     start_date: datetime | None = Query(None, description="ISO 8601, inicio inclusivo."),
     end_date: datetime | None = Query(None, description="ISO 8601, fin exclusivo."),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> dict[str, Any]:
     """Métricas operacionales calculadas con Pandas sobre `telemetry_events`.
 

@@ -98,7 +98,9 @@ def knowledge_base_path() -> Path:
 
 
 def get_qdrant_client() -> QdrantClient:
-    return QdrantClient(url=os.environ.get("QDRANT_URL", "http://localhost:6333"))
+    # API key obligatoria en el Qdrant de docker-compose (auditoría OWASP, C3); vacía = Qdrant local sin auth.
+    return QdrantClient(url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+                        api_key=os.environ.get("QDRANT_API_KEY") or None)
 
 
 def get_llm_client() -> OpenAI:

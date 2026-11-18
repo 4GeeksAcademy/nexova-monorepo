@@ -1,0 +1,11 @@
+___________ test_sixth_failed_login_is_rate_limited_with_retry_after ___________
+    def test_sixth_failed_login_is_rate_limited_with_retry_after(api, register):
+ERROR    knowledge.router:router.py:37 Fallo en la consulta a la base de conocimiento
+FAILED tests/security/test_owasp_auth.py::test_sixth_failed_login_is_rate_limited_with_retry_after
+FAILED tests/security/test_owasp_auth.py::test_unknown_emails_are_limited_too_and_answer_like_wrong_passwords
+FAILED tests/security/test_owasp_auth.py::test_forgot_password_cannot_be_used_to_flood_an_inbox
+FAILED tests/security/test_owasp_auth.py::test_token_of_deactivated_account_is_rejected
+FAILED tests/security/test_owasp_auth.py::test_password_change_invalidates_older_tokens
+FAILED tests/security/test_owasp_auth.py::test_regular_user_cannot_list_or_read_other_accounts
+FAILED tests/security/test_owasp_auth.py::test_knowledge_query_without_guardrails_is_staff_only
+7 failed, 4 passed in 7.15s

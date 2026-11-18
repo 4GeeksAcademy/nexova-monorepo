@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from knowledge import pipeline_bridge
 from knowledge.schemas import KnowledgeQueryRequest, KnowledgeQueryResponse
 from models import User
-from security import get_current_user
+from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 @router.post("/query", response_model=KnowledgeQueryResponse)
 def query_knowledge(
     payload: KnowledgeQueryRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> KnowledgeQueryResponse:
     # `def` síncrono: FastAPI lo ejecuta en su threadpool (Qdrant y el LLM bloquean).
     try:

@@ -10,6 +10,11 @@ principio (todas sus escrituras son idempotentes). En cada fallo el ticket
 guarda `error_message`, así que la UI nunca muestra un `analizando` mudo; al
 agotar los reintentos la tarea va a la DLQ (`ObservedTask.on_failure`) y el
 ticket se reprocesa con `scripts/rfp_reprocess.py <ticket_id>`.
+
+El `error_message` lo ve cualquier usuario de la UI: lleva solo una causa
+genérica y el id de la tarea como referencia (`public_error`). El detalle del
+proveedor (cadena LiteLLM/OpenRouter, cuota, URLs de la cuenta) va únicamente al
+log del worker (auditoría OWASP, A05/A09 — exposición de información interna).
 """
 
 from __future__ import annotations
@@ -39,9 +44,31 @@ def _record_error(ticket_id: str, message: str) -> None:
         logger.exception("ticket=%s no se pudo registrar el error", ticket_id)
 
 
+# Nombre de la excepción (SDK `openai`, httpx, LiteLLM…) → causa que se puede enseñar.
+_PUBLIC_CAUSES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("PermissionDenied", "RateLimit", "Authentication", "QuotaExceeded"),
+     "el modelo de lenguaje no está disponible ahora mismo (cuota o permisos del proveedor)"),
+    (("Timeout", "SoftTimeLimit"), "el modelo de lenguaje tardó demasiado en responder"),
+    (("APIConnection", "ConnectError", "ConnectionError", "ServiceUnavailable", "InternalServer", "APIStatus"),
+     "no se pudo contactar con el modelo de lenguaje"),
+    (("OperationalError", "SQLAlchemy", "DatabaseError"), "la base de datos no respondió"),
+)
+
+
+def public_error(exc: BaseException) -> str:
+    """Causa genérica para la UI; nunca el texto de la excepción."""
+    names = [cls.__name__ for cls in type(exc).__mro__]
+    for markers, cause in _PUBLIC_CAUSES:
+        if any(marker in name for name in names for marker in markers):
+            return cause
+    return "error interno"
+
+
 def _retry_or_fail(task: ObservedTask, ticket_id: str, exc: Exception, phase: str, script: str) -> None:
     """Deja el fallo visible en el ticket y reintenta; sin reintentos, relanza (→ DLQ)."""
-    error = f"{type(exc).__name__}: {exc}"
+    logger.warning("task_id=%s ticket=%s %s falló (intento %d)", task.request.id, ticket_id, phase,
+                   task.attempt(), exc_info=exc)
+    error = f"{public_error(exc)}; ref. {task.request.id}"
     if task.request.retries < task.max_retries:
         countdown = retry_countdown(task.request.retries)
         _record_error(

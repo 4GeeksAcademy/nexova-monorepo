@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Rastros de un error crudo de proveedor/infraestructura que nunca deben llegar a la UI
+# (auditoría OWASP A05/A09): URLs, cadena LiteLLM/OpenRouter, códigos HTTP, JSON del proveedor.
+_LEAK_RE = re.compile(
+    r"https?://|litellm|openrouter|openai|APIError|Error code:|Exception|Traceback|"
+    r"\{\s*\"|api[_ -]?key|redis://|postgres(ql)?://",
+    re.IGNORECASE,
+)
+_LEAK_DETAIL = "detalle técnico en los logs del worker"
+
+
+def public_error_message(message: str | None) -> str | None:
+    """Defensa en profundidad sobre `error_message` ya guardado (incluidos los anteriores a la
+    auditoría): si contiene detalles internos, se conserva solo la frase inicial ("… falló")."""
+    if not message or not _LEAK_RE.search(message):
+        return message
+    head = message.split(" (", 1)[0].split(": ", 1)
+    prefix = head[0] if len(head) == 1 else f"{head[0]}: {head[1]}"
+    if _LEAK_RE.search(prefix):
+        prefix = "La última tarea de este ticket falló"
+    retry = re.search(r"reintento en \d+ s\.?$", message)
+    return f"{prefix.rstrip('. ')} ({_LEAK_DETAIL})" + (f"; {retry.group(0)}" if retry else ".")
 
 TicketStatus = Literal[
     "analizando",
@@ -45,6 +68,11 @@ class RfpTicketSummary(BaseModel):
     currency: str | None = None
     departments_needed: list[DepartmentId] = Field(default_factory=list)
     error_message: str | None = None
+
+    @field_validator("error_message")
+    @classmethod
+    def _hide_internal_details(cls, value: str | None) -> str | None:
+        return public_error_message(value)
     attempts: int = 0
     ready_for_approval: bool = False
     created_at: datetime

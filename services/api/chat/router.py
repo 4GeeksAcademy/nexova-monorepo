@@ -32,7 +32,8 @@ from chat.runner import ChatService
 from chat.schemas import AuthFrame, ChatSession, ChatSessionWithMessages, ChatMessageOut
 from chat.store import SqliteChatStore
 from models import User
-from security import decode_access_token, get_current_user
+from http_security import origin_allowed
+from security import decode_token_claims, get_current_user, token_still_valid
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -95,10 +96,11 @@ def user_from_token(token: str) -> User | None:
     from routes.users import get_user_by_id
 
     try:
-        user_id = decode_access_token(token)
+        claims = decode_token_claims(token)
     except JWTError:
         return None
-    return get_user_by_id(user_id)
+    user = get_user_by_id(claims["sub"])
+    return user if user is not None and token_still_valid(user, claims) else None
 
 
 async def _authenticate(websocket: WebSocket) -> User | None:
@@ -157,6 +159,10 @@ async def chat_socket(
     session_id: str,
     service: ChatService = Depends(get_chat_service),
 ) -> None:
+    # Cross-Site WebSocket Hijacking: un navegador en otro origen no abre el socket.
+    if not origin_allowed(websocket.headers.get("origin")):
+        await websocket.close(code=schemas.CLOSE_FORBIDDEN, reason="origin_not_allowed")
+        return
     await websocket.accept()
     user = await _authenticate(websocket)
     if user is None:

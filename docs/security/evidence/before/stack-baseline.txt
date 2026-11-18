@@ -1,0 +1,56 @@
+Línea base de seguridad — fase: before — 2026-11-17T18:53:44Z
+Rama: feature/owasp-top10-audit @ 56fe1e5
+
+===== 1. Puertos publicados (docker compose ps) =====
+SERVICE   STATE     PORTS
+api       running   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+flower    running   0.0.0.0:5555->5555/tcp, [::]:5555->5555/tcp
+qdrant    running   0.0.0.0:6333->6333/tcp, [::]:6333->6333/tcp
+redis     running   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp
+uis       running   0.0.0.0:3000-3001->3000-3001/tcp, [::]:3000-3001->3000-3001/tcp
+
+===== 1b. Puertos declarados en la configuración (docker compose config) =====
+api        perfil=-      user=(imagen)     0.0.0.0:8000->8000
+flower     perfil=-      user=(imagen)     0.0.0.0:5555->5555
+mcp        perfil=-      user=(imagen)     0.0.0.0:8100->8100
+qdrant     perfil=-      user=(imagen)     0.0.0.0:6333->6333
+redis      perfil=-      user=(imagen)     0.0.0.0:6379->6379
+scheduler  perfil=-      user=(imagen)     (sin puertos en el host)
+uis        perfil=-      user=(imagen)     0.0.0.0:3000->3000 0.0.0.0:3001->3001
+worker     perfil=-      user=(imagen)     (sin puertos en el host)
+
+===== 2. Usuario efectivo por contenedor (uid 0 = root) =====
+api        uid=0 user=root
+flower     uid=0 user=root
+qdrant     uid=0 user=root
+redis      uid=0 user=root
+uis        uid=0 user=root
+
+===== 3. Acceso sin credenciales desde el host =====
+Redis  6379 (PING sin AUTH):     ABIERTO → +PONG
+Qdrant 6333 (GET /collections):  HTTP 200
+Flower 5555 (GET / panel web):   HTTP 200
+API    8000 (GET /api/health):   HTTP 200
+Escucha en 0.0.0.0 vs 127.0.0.1 (lsof del host):
+COMMAND     PID      USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+com.docke  3979 miggy1312   77u  IPv6 0x6b824f0ec09490c4      0t0  TCP *:5555 (LISTEN)
+com.docke  3979 miggy1312   89u  IPv6 0x6eccec8a75245469      0t0  TCP *:6379 (LISTEN)
+com.docke  3979 miggy1312  100u  IPv6 0x3f4350523abb70d2      0t0  TCP *:8000 (LISTEN)
+com.docke  3979 miggy1312  134u  IPv6 0xce2240c209732d5c      0t0  TCP *:6333 (LISTEN)
+com.docke  3979 miggy1312  237u  IPv6 0xfabe99fc09d89e93      0t0  TCP *:3000 (LISTEN)
+com.docke  3979 miggy1312  238u  IPv6 0x551dc015278070db      0t0  TCP *:3001 (LISTEN)
+
+===== 4. Modo de ejecución =====
+api: /usr/local/bin/python /usr/local/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload 
+uis: node ./node_modules/.bin/next dev --webpack -p 3000 -H 0.0.0.0
+uis: node ./node_modules/.bin/next dev --webpack -p 3001 -H 0.0.0.0
+
+===== 5. Cabeceras de la API =====
+server: uvicorn
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: no-referrer
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+/docs: HTTP 200
+
+NOTA: la API se ejecuta con --reload y bind mount del código, por lo que las cabeceras de la sección 5 ya reflejan el middleware nuevo al capturar esta línea base. El estado previo de cabeceras/autenticación queda demostrado por los tests en before/pytest-*.txt.

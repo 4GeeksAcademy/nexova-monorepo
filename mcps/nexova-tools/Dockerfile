@@ -10,6 +10,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY nexova_mcp ./nexova_mcp
 
+# Sin privilegios (auditoría OWASP, C5): el MCP solo necesita leer su código.
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin mcp
+USER mcp
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 

@@ -1,0 +1,17 @@
+PoC en vivo C1/C2/H1/H2 contra el stack endurecido (http://127.0.0.1:8000) — 2026-11-17T19:02:07Z
+$ POST /users (registro público)
+rol = user
+$ GET /rfp/tickets con la cuenta autoregistrada
+HTTP 403
+$ GET /api/incidents con la misma cuenta (sin empresa)
+HTTP 403
+$ GET /users (listado de cuentas)
+HTTP 403
+$ scripts/set_user_role.py <email> manager
+<email>: rol=manager client_company=None
+$ GET /rfp/tickets como manager
+HTTP 200
+$ 6 logins fallidos seguidos
+401 401 401 401 401 429 
+$ DELETE /users/<id> (limpieza de la cuenta de prueba)
+HTTP 200

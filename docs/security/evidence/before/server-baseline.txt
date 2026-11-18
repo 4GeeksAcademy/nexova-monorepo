@@ -1,0 +1,57 @@
+Nexova · evidencia de endurecimiento del servidor (OWASP A05)
+Generado: 2026-11-17T18:47:42Z
+Imagen: nexova-server-test (Ubuntu 24.04.5 LTS)
+Docker: 29.8.2
+Script: infra/server/test/verify.sh
+
+==================== ANTES: Ubuntu 24.04 recién instalado, sin endurecer ====================
+
+$ whoami; id root
+root
+uid=0(root) gid=0(root) groups=0(root)
+
+$ sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers|maxauthtries|x11forwarding) '
+maxauthtries 6
+permitrootlogin without-password
+passwordauthentication yes
+kbdinteractiveauthentication no
+x11forwarding yes
+  -> por defecto: root puede entrar con clave (without-password = prohibit-password),
+     se aceptan contraseñas y no hay lista de usuarios permitidos.
+
+$ ls /etc/ssh/sshd_config.d/
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey root@localhost 'echo LOGIN_ROOT_OK: $(whoami)@$(hostname)'
+LOGIN_ROOT_OK: root@nexova-srv
+  -> root entra por SSH (riesgo: acceso directo a la cuenta más privilegiada).
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive root@localhost true
+root@localhost: Permission denied (publickey,password).
+(exit 255)
+  -> el servidor ofrece 'password' como método de autenticación (fuerza bruta posible).
+
+$ id deploy
+id: 'deploy': no such user
+(exit 1)
+
+$ ufw status verbose
+Status: inactive
+
+$ ls -ld /srv/nexova
+ls: cannot access '/srv/nexova': No such file or directory
+(exit 2)
+
+==================== ANTES: puertos alcanzables desde un cliente externo ====================
+(el stack simulado escucha en 0.0.0.0 en todos los puertos internos)
+
+$ (desde nexova-probe) nc -z -w 3 nexova-srv <puerto>
+  22    ABIERTO (alcanzable desde fuera)
+  80    ABIERTO (alcanzable desde fuera)
+  443   ABIERTO (alcanzable desde fuera)
+  3000  ABIERTO (alcanzable desde fuera)
+  3001  ABIERTO (alcanzable desde fuera)
+  5555  ABIERTO (alcanzable desde fuera)
+  6333  ABIERTO (alcanzable desde fuera)
+  6379  ABIERTO (alcanzable desde fuera)
+  8000  ABIERTO (alcanzable desde fuera)
+  8100  ABIERTO (alcanzable desde fuera)

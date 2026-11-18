@@ -1,0 +1,178 @@
+Nexova · evidencia de endurecimiento del servidor (OWASP A05)
+Generado: 2026-11-17T18:47:42Z
+Imagen: nexova-server-test (Ubuntu 24.04.5 LTS)
+Docker: 29.8.2
+Script: infra/server/test/verify.sh
+
+==================== Ejecución 1 de bootstrap.sh ====================
+
+$ DEPLOY_PUBKEY_FILE=/root/testkey.pub bash /opt/nexova-server/bootstrap.sh
+[bootstrap] creando usuario 'deploy'
+[bootstrap] añadiendo clave a authorized_keys
+[bootstrap] escribiendo /etc/sudoers.d/90-nexova-deploy
+[bootstrap] escrito /etc/ssh/sshd_config.d/10-nexova.conf (sshd -t OK)
+[bootstrap] sshd recargado (SIGHUP a 13)
+[bootstrap] layout /srv/nexova aplicado
+[bootstrap] ufw activo: Status: active
+[bootstrap] OK — servidor endurecido
+
+==================== DESPUÉS: configuración efectiva de sshd ====================
+
+$ cat /etc/ssh/sshd_config.d/10-nexova.conf
+# Gestionado por infra/server/bootstrap.sh — no editar a mano.
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AllowUsers deploy
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+
+$ sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers|maxauthtries|x11forwarding|authenticationmethods) '
+maxauthtries 3
+permitrootlogin no
+passwordauthentication no
+kbdinteractiveauthentication no
+x11forwarding no
+allowusers deploy
+authenticationmethods publickey
+
+==================== DESPUÉS: login de root rechazado (aunque tiene una clave válida) ====================
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey root@localhost 'echo LOGIN_ROOT_OK'
+root@localhost: Permission denied (publickey).
+(exit 255)
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive deploy@localhost true
+deploy@localhost: Permission denied (publickey).
+(exit 255)
+  -> ya solo se ofrece 'publickey': las contraseñas no son un método válido.
+
+==================== DESPUÉS: login de deploy con la clave generada en la prueba ====================
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey deploy@localhost 'echo LOGIN_DEPLOY_OK: $(whoami)@$(hostname); id'
+LOGIN_DEPLOY_OK: deploy@nexova-srv
+uid=1001(deploy) gid=1001(deploy) groups=1001(deploy)
+
+$ getent shadow deploy | cut -d: -f1,2
+deploy:*
+  -> '*' = sin contraseña utilizable.
+
+==================== DESPUÉS: sudo limitado de deploy ====================
+
+$ cat /etc/sudoers.d/90-nexova-deploy
+# Gestionado por infra/server/bootstrap.sh — no editar a mano.
+# 'deploy' NO está en el grupo docker (equivaldría a root): solo puede
+# ejecutar estos comandos exactos. Sin comodines para impedir argumentos extra
+# (p. ej. 'docker compose -f /otro.yml' o 'run --privileged').
+Cmnd_Alias NEXOVA_COMPOSE = /usr/bin/docker compose --project-directory /srv/nexova/app pull, \
+                            /usr/bin/docker compose --project-directory /srv/nexova/app up -d, \
+                            /usr/bin/docker compose --project-directory /srv/nexova/app up -d --remove-orphans, \
+                            /usr/bin/docker compose --project-directory /srv/nexova/app down, \
+                            /usr/bin/docker compose --project-directory /srv/nexova/app ps, \
+                            /usr/bin/docker compose --project-directory /srv/nexova/app restart
+Cmnd_Alias NEXOVA_SYSTEMCTL = /usr/bin/systemctl status docker, \
+                              /usr/bin/systemctl restart docker, \
+                              /usr/bin/systemctl status ssh, \
+                              /usr/bin/systemctl reload ssh
+Defaults:deploy !visiblepw, use_pty, logfile=/var/log/sudo-nexova.log
+deploy ALL=(root) NOPASSWD: NEXOVA_COMPOSE, NEXOVA_SYSTEMCTL
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey deploy@localhost 'sudo -n /bin/bash -c id'
+sudo: a password is required
+(exit 1)
+  -> deploy NO puede obtener una shell de root.
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey deploy@localhost 'sudo -n /usr/bin/docker compose -f /tmp/otro.yml up -d'
+sudo: a password is required
+(exit 1)
+  -> ni ejecutar docker compose con argumentos distintos de los permitidos.
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey deploy@localhost 'sudo -n -l' | sed -n '/may run/,$p'
+User deploy may run the following commands on nexova-srv:
+    (root) NOPASSWD: /usr/bin/docker compose --project-directory /srv/nexova/app pull, /usr/bin/docker compose --project-directory /srv/nexova/app up -d, /usr/bin/docker compose --project-directory /srv/nexova/app up -d --remove-orphans, /usr/bin/docker compose --project-directory /srv/nexova/app down, /usr/bin/docker compose --project-directory /srv/nexova/app ps, /usr/bin/docker compose --project-directory /srv/nexova/app restart, /usr/bin/systemctl status docker, /usr/bin/systemctl restart docker, /usr/bin/systemctl status ssh, /usr/bin/systemctl reload ssh
+
+==================== DESPUÉS: firewall ====================
+
+$ ufw status verbose
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     LIMIT IN    Anywhere                   # SSH (rate limited)
+443/tcp                    ALLOW IN    Anywhere                   # HTTPS (proxy inverso)
+80/tcp                     ALLOW IN    Anywhere                   # HTTP (solo redirect a HTTPS)
+22/tcp (v6)                LIMIT IN    Anywhere (v6)              # SSH (rate limited)
+443/tcp (v6)               ALLOW IN    Anywhere (v6)              # HTTPS (proxy inverso)
+80/tcp (v6)                ALLOW IN    Anywhere (v6)              # HTTP (solo redirect a HTTPS)
+
+
+$ ufw show added
+Added user rules (see 'ufw status' for running firewall):
+ufw limit 22/tcp comment 'SSH (rate limited)'
+ufw allow 443/tcp comment 'HTTPS (proxy inverso)'
+ufw allow 80/tcp comment 'HTTP (solo redirect a HTTPS)'
+
+$ iptables -S ufw-user-input
+-N ufw-user-input
+-A ufw-user-input -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
+-A ufw-user-input -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 --name DEFAULT --mask 255.255.255.255 --rsource -j ufw-user-limit
+-A ufw-user-input -p tcp -m tcp --dport 22 -j ufw-user-limit-accept
+-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT
+-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT
+
+==================== DESPUÉS: puertos alcanzables desde un cliente externo ====================
+(los mismos listeners siguen escuchando en 0.0.0.0; ahora los filtra ufw)
+
+$ (desde nexova-probe) nc -z -w 3 nexova-srv <puerto>
+  22    ABIERTO (alcanzable desde fuera)
+  80    ABIERTO (alcanzable desde fuera)
+  443   ABIERTO (alcanzable desde fuera)
+  3000  bloqueado/cerrado
+  3001  bloqueado/cerrado
+  5555  bloqueado/cerrado
+  6333  bloqueado/cerrado
+  6379  bloqueado/cerrado
+  8000  bloqueado/cerrado
+  8100  bloqueado/cerrado
+
+==================== DESPUÉS: permisos de /srv/nexova ====================
+
+$ stat -c '%U:%G %a %n' /srv/nexova /srv/nexova/app /srv/nexova/logs /srv/nexova/config /srv/nexova/config/.env
+root:root 755 /srv/nexova
+deploy:deploy 755 /srv/nexova/app
+deploy:adm 750 /srv/nexova/logs
+root:deploy 750 /srv/nexova/config
+root:deploy 640 /srv/nexova/config/.env
+
+$ ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR -i /root/testkey deploy@localhost 'cat /srv/nexova/config/.env >/dev/null && echo deploy puede LEER .env; echo x >> /srv/nexova/config/.env'
+bash: line 1: /srv/nexova/config/.env: Permission denied
+deploy puede LEER .env
+(exit 1)
+  -> deploy lee la configuración pero no puede modificarla.
+
+==================== Ejecución 2 de bootstrap.sh (idempotencia) ====================
+
+$ DEPLOY_PUBKEY_FILE=/root/testkey.pub bash /opt/nexova-server/bootstrap.sh
+[bootstrap] usuario 'deploy' ya existe
+[bootstrap] clave ya presente en authorized_keys
+[bootstrap] sudoers sin cambios
+[bootstrap] sshd drop-in sin cambios
+[bootstrap] layout /srv/nexova aplicado
+[bootstrap] ufw activo: Status: active
+[bootstrap] OK — servidor endurecido
+
+$ diff <estado tras ejecución 1> <estado tras ejecución 2>
+  -> SIN DIFERENCIAS: sshd -T, ufw, permisos, sudoers, authorized_keys y usuario idénticos.
+
+$ grep -c verify@nexova-test /home/deploy/.ssh/authorized_keys
+1
+  -> la clave no se duplica.

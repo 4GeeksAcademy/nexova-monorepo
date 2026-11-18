@@ -32,6 +32,10 @@ class Settings:
     upstream_timeout_seconds: float = 5.0
     host: str = "0.0.0.0"
     port: int = 8100
+    # Auditoría OWASP (H4): orígenes de navegador permitidos (nunca `*`) y proxies
+    # de confianza para `X-Forwarded-*` (por defecto solo localhost).
+    allowed_origins: tuple[str, ...] = ("https://www.mcpplayground.tech",)
+    forwarded_allow_ips: str = "127.0.0.1"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -44,4 +48,11 @@ class Settings:
             upstream_timeout_seconds=float(os.environ.get("MCP_UPSTREAM_TIMEOUT_SECONDS", "5")),
             host=os.environ.get("MCP_HOST", "0.0.0.0"),
             port=int(os.environ.get("MCP_PORT", "8100")),
+            allowed_origins=_origins(os.environ.get("MCP_ALLOWED_ORIGINS", "https://www.mcpplayground.tech")),
+            forwarded_allow_ips=os.environ.get("MCP_FORWARDED_ALLOW_IPS", "127.0.0.1").strip() or "127.0.0.1",
         )
+
+
+def _origins(raw: str) -> tuple[str, ...]:
+    """Lista separada por comas; `*` se descarta (el MCP lleva bearer tokens)."""
+    return tuple(o.strip().rstrip("/") for o in raw.split(",") if o.strip() and o.strip() != "*")

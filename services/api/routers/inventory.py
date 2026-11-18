@@ -29,6 +29,7 @@ from schemas import (
     OrderRead,
 )
 from security import get_current_user
+from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -177,7 +178,7 @@ def list_products(db: Session = Depends(get_db)) -> list[AssetRead]:
 def create_product(
     payload: AssetCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> AssetRead:
     existing = db.exec(select(Asset).where(Asset.sku == payload.sku)).first()
     if existing is not None:
@@ -234,7 +235,7 @@ def reject_direct_stock_edit(
 def create_inbound_order(
     payload: AssetEntryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> AssetEntryRead:
     asset = db.get(Asset, payload.asset_id)
     if asset is None:
@@ -323,7 +324,7 @@ def create_inbound_order(
 def create_outbound_order(
     payload: AssetExitCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> AssetExitRead:
     asset = db.get(Asset, payload.asset_id)
     if asset is None:
@@ -440,7 +441,7 @@ def create_outbound_order(
 @router.get("/orders", response_model=list[OrderRead])
 def list_orders(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> list[OrderRead]:
     def _compute() -> list[OrderRead]:
         assets_by_id = {asset.id: asset for asset in db.exec(select(Asset)).all()}

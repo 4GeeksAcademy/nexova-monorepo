@@ -1,10 +1,22 @@
+# Stack de Nexova — configuración ENDURECIDA por defecto (auditoría OWASP Top 10,
+# ver docs/security/owasp-top10-audit.md):
+#   - Solo api, mcp y uis publican puertos, y únicamente en 127.0.0.1 (un proxy
+#     TLS o el reenvío de Codespaces los expone). Redis y Qdrant solo existen en
+#     la red interna `nexova-net`.
+#   - Redis exige contraseña (REDIS_PASSWORD) y Qdrant API key (QDRANT_API_KEY).
+#   - Todos los contenedores corren sin root; sin --reload ni `next dev`.
+#   - Flower solo en el perfil `dev`, con basic auth.
+# Desarrollo (hot reload, Redis/Qdrant en localhost, Flower):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 services:
   api:
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: ./services
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${API_BIND:-127.0.0.1}:8000:8000"
     volumes:
       - ./services/api:/app
       - ./packages/incidents-analyzer:/packages/incidents-analyzer:ro
@@ -27,11 +39,15 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - TELEMETRY_SCHEMAS_PATH=/docs/telemetry/event-schemas.json
       - PIPELINES_PATH=/data/pipelines
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Define REDIS_PASSWORD en .env}@redis:6379/0
+      - ENABLE_API_DOCS=${ENABLE_API_DOCS:-false}
+      # Responsables que pueden registrar decisiones de RFP (JSON nombre → email).
+      - RFP_APPROVERS=${RFP_APPROVERS:-}
       # RAG (Hito 7): Qdrant + modelos de 4Geeks (embeddings y generación separados).
       - PROCESS_PATH=/data/process
       - KNOWLEDGE_BASE_PATH=/docs/company-knowledge-base
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:?Define QDRANT_API_KEY en .env}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_API_KEY=${LLM_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
@@ -56,12 +72,16 @@ services:
   # lectura por Streamable HTTP, protegido con OAuth (MCP Auth + Logto).
   # En Codespaces, el puerto 8100 debe reenviarse con visibilidad pública.
   mcp:
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: ./mcps/nexova-tools
       dockerfile: Dockerfile
     ports:
-      - "8100:8100"
+      - "${MCP_BIND:-127.0.0.1}:8100:8100"
+    read_only: true
     environment:
+      - MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-https://www.mcpplayground.tech}
       - MCP_RESOURCE_URL=${MCP_RESOURCE_URL}
       - MCP_OAUTH_ISSUER=${MCP_OAUTH_ISSUER}
       - NEXOVA_API_URL=http://api:8000
@@ -76,8 +96,9 @@ services:
   # Base de conocimiento vectorial del RAG (colección `nexova_knowledge`).
   qdrant:
     image: qdrant/qdrant:v1.20.0
-    ports:
-      - "6333:6333"
+    # Sin puertos en el host: solo la red interna. API key obligatoria.
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?Define QDRANT_API_KEY en .env}
     volumes:
       - qdrant-data:/qdrant/storage
     networks:
@@ -88,13 +109,16 @@ services:
   # la cola sobrevive a un reinicio del contenedor.
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
+    # Sin puertos en el host y con contraseña: quien llega al broker de Celery
+    # puede encolar tareas arbitrarias (auditoría OWASP, C3). Se pasa por
+    # docker-entrypoint.sh para que redis-server baje al usuario `redis` (no root).
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --maxmemory-policy noeviction --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?Define REDIS_PASSWORD en .env}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -104,6 +128,8 @@ services:
   # Worker de Celery: misma imagen y código que la API, pero proceso y
   # contenedor propios. No depende de `api`: parar la API no lo para.
   worker:
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: ./services
       dockerfile: Dockerfile
@@ -119,7 +145,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - PIPELINES_PATH=/data/pipelines
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Define REDIS_PASSWORD en .env}@redis:6379/0
       # Grafo rfp_intake (Hito 9): PDFs subidos y modelo de generación de 4Geeks.
       - RFP_RAW_DIR=/data/raw/rfp
       - LLM_BASE_URL=${LLM_BASE_URL}
@@ -128,6 +154,7 @@ services:
       # Grafo rfp_drafting (Hito 9 · Parte 2): base de conocimiento y límite del ciclo.
       - PROCESS_PATH=/data/process
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:?Define QDRANT_API_KEY en .env}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - RFP_MAX_ITERATIONS=${RFP_MAX_ITERATIONS:-3}
       # Timeout blando por tarea; `TASK_SOFT_TIME_LIMIT=1` provoca la demo de la DLQ.
@@ -140,18 +167,21 @@ services:
     networks:
       - nexova-net
 
-  # Monitor de la cola (solo desarrollo): http://localhost:5555
+  # Monitor de la cola (solo desarrollo, perfil `dev`): http://localhost:5555,
+  # con basic auth y solo en 127.0.0.1. Permite inspeccionar y revocar tareas.
   flower:
+    profiles: ["dev"]
     build:
       context: ./services
       dockerfile: Dockerfile
     # Solo necesita el broker (lee los eventos del worker): sin `-A` no importa
     # las tareas ni, con ellas, el pipeline.
-    command: ["sh", "-c", "exec celery --broker=\"$$REDIS_URL\" flower --port=5555"]
+    command: ["sh", "-c", "[ -n \"$$FLOWER_BASIC_AUTH\" ] || { echo 'Define FLOWER_BASIC_AUTH=usuario:contraseña' >&2; exit 1; }; exec celery --broker=\"$$REDIS_URL\" flower --port=5555 --basic-auth=\"$$FLOWER_BASIC_AUTH\""]
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Define REDIS_PASSWORD en .env}@redis:6379/0
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -161,6 +191,8 @@ services:
   # Jobs nocturnos (supercronic). Proceso aparte de la API: no comparte hilo
   # ni contenedor con FastAPI. Cron en services/scheduler/crontab.
   scheduler:
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: ./services
       dockerfile: scheduler/Dockerfile
@@ -176,13 +208,15 @@ services:
       - nexova-net
 
   uis:
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: ./uis
       dockerfile: Dockerfile
     init: true
     ports:
-      - "3000:3000"
-      - "3001:3001"
+      - "${UIS_BIND:-127.0.0.1}:3000:3000"
+      - "${UIS_BIND:-127.0.0.1}:3001:3001"
     volumes:
       - ./uis/website/my-app:/app/uis/website
       - /app/uis/website/node_modules
@@ -192,6 +226,8 @@ services:
     environment:
       - BACKEND_API_URL=${BACKEND_API_URL}
       - NEXT_PUBLIC_TELEMETRY_ENDPOINT=${NEXT_PUBLIC_TELEMETRY_ENDPOINT}
+      - NEXT_PUBLIC_CHAT_WS_URL=${NEXT_PUBLIC_CHAT_WS_URL:-}
+      - UIS_MODE=${UIS_MODE:-production}
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true
     depends_on:

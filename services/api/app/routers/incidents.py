@@ -11,7 +11,16 @@ Router: /api/incidents
                                           (404 / 409 invalid_transition / 422)
 
 Estos endpoints los consume el MCP Server `mcps/nexova-tools`, que es el
-único camino del agente LangGraph hacia el gestor de incidentes.
+único camino del agente LangGraph hacia el gestor de incidentes (su cuenta de
+servicio debe tener rol `manager`).
+
+Acceso (auditoría OWASP, hallazgo C2 — misma tenancy que el agente):
+- Personal interno (`admin`/`manager`): todas las empresas.
+- Cliente con `client_company`: solo su empresa; el filtro se fuerza por código
+  y un ticket ajeno responde 404 (no se revela que existe). Crea tickets solo
+  para su empresa.
+- `user` sin empresa: 403.
+- Cambios de estado y análisis/export de CSV: solo personal interno.
 """
 
 from __future__ import annotations
@@ -19,12 +28,15 @@ from __future__ import annotations
 import logging
 from typing import get_args
 
+import incidents_analyzer as ia
+from agent.guardrails.tenancy import Tenant
+from authz import current_tenant, require_staff
+from database import get_db
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from models import User
 from sqlmodel import Session
-
-import incidents_analyzer as ia
 
 from app import incidents_store
 from app.schemas import (
@@ -36,9 +48,6 @@ from app.schemas import (
     IncidentStatusUpdate,
 )
 from app.state import get_last_summary, set_last_summary
-from database import get_db
-from models import User
-from security import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +62,7 @@ MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB, margen para producción
 
 @router.post("/analyze", response_model=IncidentAnalysisSummary)
 async def analyze_incidents(
-    file: UploadFile = File(...), current_user: User = Depends(get_current_user)
+    file: UploadFile = File(...), current_user: User = Depends(require_staff)
 ) -> IncidentAnalysisSummary:
     """
     Recibe un CSV como multipart/form-data, ejecuta la misma lógica de
@@ -70,7 +79,8 @@ async def analyze_incidents(
             detail=f"Formato no soportado: '{file.filename}'. Se espera un fichero .csv.",
         )
 
-    raw_bytes = await file.read()
+    # Lee como mucho el límite + 1 byte: un fichero enorme no llega entero a memoria.
+    raw_bytes = await file.read(MAX_FILE_SIZE_BYTES + 1)
 
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="El fichero está vacío.")
@@ -103,7 +113,7 @@ async def analyze_incidents(
     summary = ia.build_summary(result)
 
     # Se guarda para que GET /api/incidents/results/export pueda descargarlo.
-    set_last_summary(summary)
+    set_last_summary(summary, owner=current_user.id)
 
     # Tickets válidos a Supabase para consultarlos uno a uno (GET /api/incidents/{id}).
     # Si la base de datos falla, el análisis se devuelve igual: el resumen no depende de ella.
@@ -117,12 +127,12 @@ async def analyze_incidents(
 
 
 @router.get("/results/export")
-async def export_results(current_user: User = Depends(get_current_user)) -> Response:
+async def export_results(current_user: User = Depends(require_staff)) -> Response:
     """
     Devuelve el último análisis ejecutado como un CSV descargable
     (una fila por métrica), igual que el script de la Fase 1.
     """
-    summary = get_last_summary()
+    summary = get_last_summary(owner=current_user.id)
 
     if summary is None:
         raise HTTPException(
@@ -146,9 +156,11 @@ def list_incidents(
     client_company: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=20, ge=1, le=incidents_store.MAX_LIST_LIMIT),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(current_tenant),
 ) -> list[IncidentRead]:
     """Tickets guardados, del más reciente al más antiguo. Solo lectura."""
+    if not tenant.is_staff:
+        client_company = tenant.client_company  # forzado: el cliente no elige la empresa
     tickets = incidents_store.list_tickets(
         db, status=status, category=category, client_company=client_company, limit=limit
     )
@@ -159,18 +171,19 @@ def list_incidents(
 def create_incident(
     payload: IncidentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(current_tenant),
 ) -> IncidentRead:
     """Crea un ticket individual. El servidor asigna `ticket_id` (NXV-NNNNNN) y `status = OPEN`."""
+    company = payload.client_company if tenant.is_staff else tenant.client_company
     ticket = incidents_store.create_ticket(
         db,
-        client_company=payload.client_company,
+        client_company=company,
         category=payload.category,
         description=payload.description,
         agent_id=payload.agent_id,
         ticket_date=payload.date,
     )
-    logger.info("Incidentes: ticket %s creado por %s", ticket.ticket_id, current_user.id)
+    logger.info("Incidentes: ticket %s creado (staff=%s)", ticket.ticket_id, tenant.is_staff)
     return IncidentRead.model_validate(ticket)
 
 
@@ -179,7 +192,7 @@ def update_incident_status(
     ticket_id: str,
     payload: IncidentStatusUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> IncidentRead:
     """
     Endpoint de ciclo de vida: OPEN→CLOSED, OPEN→DISCARDED y CLOSED→OPEN.
@@ -208,10 +221,10 @@ def update_incident_status(
 def get_incident(
     ticket_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(current_tenant),
 ) -> IncidentRead:
     """Un ticket por su id (p. ej. NXV-000001). Solo lectura."""
     ticket = incidents_store.get_ticket(db, ticket_id)
-    if ticket is None:
+    if ticket is None or not tenant.owns(ticket.client_company):
         raise HTTPException(status_code=404, detail=f"No existe el ticket '{ticket_id}'.") from None
     return IncidentRead.model_validate(ticket)

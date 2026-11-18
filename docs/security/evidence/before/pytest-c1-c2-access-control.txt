@@ -1,0 +1,189 @@
+FFFFF..FFF.FFFFFF..                                                      [100%]
+=================================== FAILURES ===================================
+___________ test_self_registered_user_cannot_read_rfps[/rfp/tickets] ___________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x112aaecf0>, store=<rfp_intake.store.InMemoryRfpStore obj...0/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+path = '/rfp/tickets'
+
+>       assert ctx.client.get(path).status_code == 403
+E       AssertionError: assert 200 == 403
+E        +  where 200 = <Response [200 OK]>.status_code
+E        +    where <Response [200 OK]> = get('/rfp/tickets')
+E        +      where get = <starlette.testclient.TestClient object at 0x112aaecf0>.get
+E        +        where <starlette.testclient.TestClient object at 0x112aaecf0> = namespace(client=<starlette.testclient.TestClient object at 0x112aaecf0>, store=<rfp_intake.store.InMemoryRfpStore obj...0/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:37: AssertionError
+________ test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X] ________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x113be0e10>, store=<rfp_intake.store.InMemoryRfpStore obj...1/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+path = '/rfp/tickets/RFP-X'
+
+>       assert ctx.client.get(path).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <Response [404 Not Found]>.status_code
+E        +    where <Response [404 Not Found]> = get('/rfp/tickets/RFP-X')
+E        +      where get = <starlette.testclient.TestClient object at 0x113be0e10>.get
+E        +        where <starlette.testclient.TestClient object at 0x113be0e10> = namespace(client=<starlette.testclient.TestClient object at 0x113be0e10>, store=<rfp_intake.store.InMemoryRfpStore obj...1/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:37: AssertionError
+_____ test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X/trace] _____
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x113be3890>, store=<rfp_intake.store.InMemoryRfpStore obj...2/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+path = '/rfp/tickets/RFP-X/trace'
+
+>       assert ctx.client.get(path).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <Response [404 Not Found]>.status_code
+E        +    where <Response [404 Not Found]> = get('/rfp/tickets/RFP-X/trace')
+E        +      where get = <starlette.testclient.TestClient object at 0x113be3890>.get
+E        +        where <starlette.testclient.TestClient object at 0x113be3890> = namespace(client=<starlette.testclient.TestClient object at 0x113be3890>, store=<rfp_intake.store.InMemoryRfpStore obj...2/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:37: AssertionError
+_ test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X/final-document] _
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x112af2650>, store=<rfp_intake.store.InMemoryRfpStore obj...3/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+path = '/rfp/tickets/RFP-X/final-document'
+
+>       assert ctx.client.get(path).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <Response [404 Not Found]>.status_code
+E        +    where <Response [404 Not Found]> = get('/rfp/tickets/RFP-X/final-document')
+E        +      where get = <starlette.testclient.TestClient object at 0x112af2650>.get
+E        +        where <starlette.testclient.TestClient object at 0x112af2650> = namespace(client=<starlette.testclient.TestClient object at 0x112af2650>, store=<rfp_intake.store.InMemoryRfpStore obj...3/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:37: AssertionError
+_________________ test_self_registered_user_cannot_upload_rfps _________________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x1142f0510>, store=<rfp_intake.store.InMemoryRfpStore obj...4/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+
+>       assert _upload(ctx.client).status_code == 403
+E       AssertionError: assert 202 == 403
+E        +  where 202 = <Response [202 Accepted]>.status_code
+E        +    where <Response [202 Accepted]> = _upload(<starlette.testclient.TestClient object at 0x1142f0510>)
+E        +      where <starlette.testclient.TestClient object at 0x1142f0510> = namespace(client=<starlette.testclient.TestClient object at 0x1142f0510>, store=<rfp_intake.store.InMemoryRfpStore obj...4/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:42: AssertionError
+___________________ test_self_registered_user_cannot_approve ___________________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x11432d370>, store=<rfp_intake.store.InMemoryRfpStore obj...5/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+approval_ctx = namespace(flow=<approval_fakes.Approvals object at 0x11435d160>, resumed=[{'ticket_id': 'RFP-P3TEST', 'department_id':...cting_as': 'Roberto Díaz', 'comment': '', 'decided_by_user': 'persona@nexova-solutions.com'}}], ticket_id='RFP-P3TEST')
+
+>       assert response.status_code == 403
+E       assert 202 == 403
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+tests/pipelines/test_owasp_rfp_access.py:57: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+services/api/.venv/lib/python3.14/site-packages/readability/text/analyzer.py:132: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+____________ test_manager_cannot_impersonate_the_expected_approver _____________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x112ab79b0>, store=<rfp_intake.store.InMemoryRfpStore obj...0/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+approval_ctx = namespace(flow=<approval_fakes.Approvals object at 0x112a1f4d0>, resumed=[{'ticket_id': 'RFP-P3TEST', 'department_id':..._as': 'Roberto Díaz', 'comment': '', 'decided_by_user': 'otra.manager@nexova-solutions.com'}}], ticket_id='RFP-P3TEST')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1142cf7a0>
+
+>       assert response.status_code == 403
+E       assert 202 == 403
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+tests/pipelines/test_owasp_rfp_access.py:66: AssertionError
+_______________ test_without_approver_mapping_only_admin_decides _______________
+
+ctx = namespace(client=<starlette.testclient.TestClient object at 0x113bf9f20>, store=<rfp_intake.store.InMemoryRfpStore obj...0/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>)
+approval_ctx = namespace(flow=<approval_fakes.Approvals object at 0x11429b250>, resumed=[{'ticket_id': 'RFP-P3TEST', 'department_id':...cting_as': 'Roberto Díaz', 'comment': '', 'decided_by_user': 'persona@nexova-solutions.com'}}], ticket_id='RFP-P3TEST')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1142a1e10>
+
+>       assert ctx.client.post(f"/rfp/tickets/{approval_ctx.ticket_id}/approvals/soporte",
+E       AssertionError: assert 202 == 403
+E        +  where 202 = <Response [202 Accepted]>.status_code
+E        +    where <Response [202 Accepted]> = post('/rfp/tickets/RFP-P3TEST/approvals/soporte', json={'decision': 'approve', 'acting_as': 'Roberto Díaz'})
+E        +      where post = <starlette.testclient.TestClient object at 0x113bf9f20>.post
+E        +        where <starlette.testclient.TestClient object at 0x113bf9f20> = namespace(client=<starlette.testclient.TestClient object at 0x113bf9f20>, store=<rfp_intake.store.InMemoryRfpStore obj...0/raw/rfp'), router=<module 'rfp.router' from 'services/api/rfp/router.py'>).client
+
+tests/pipelines/test_owasp_rfp_access.py:74: AssertionError
+________ test_client_only_lists_own_company_even_if_asking_for_another _________
+
+client_as = <function client_as.<locals>._make at 0x1150bde80>
+two_companies = None
+
+>       assert {t["client_company"] for t in acme.get("/api/incidents").json()} == {"Acme Corp"}
+E       AssertionError: assert {'Acme Corp', 'Globex SA'} == {'Acme Corp'}
+E         
+E         Extra items in the left set:
+E         'Globex SA'
+E         Use -v to get more diff
+
+tests/incidents/test_owasp_tenancy.py:70: AssertionError
+_________________ test_client_cannot_read_foreign_ticket_by_id _________________
+
+client_as = <function client_as.<locals>._make at 0x115072560>
+two_companies = None
+
+>       assert acme.get("/api/incidents/NXV-000002").status_code == 404  # no revela que existe
+E       AssertionError: assert 200 == 404
+E        +  where 200 = <Response [200 OK]>.status_code
+E        +    where <Response [200 OK]> = get('/api/incidents/NXV-000002')
+E        +      where get = <starlette.testclient.TestClient object at 0x1143707c0>.get
+
+tests/incidents/test_owasp_tenancy.py:78: AssertionError
+___________________ test_client_cannot_change_ticket_status ____________________
+
+client_as = <function client_as.<locals>._make at 0x1151310c0>
+two_companies = None
+
+>           assert r.status_code == 403
+E           assert 200 == 403
+E            +  where 200 = <Response [200 OK]>.status_code
+
+tests/incidents/test_owasp_tenancy.py:85: AssertionError
+_______________ test_client_creates_tickets_only_for_own_company _______________
+
+client_as = <function client_as.<locals>._make at 0x11515c1a0>
+two_companies = None
+
+>       assert r.status_code == 201 and r.json()["client_company"] == "Acme Corp"
+E       AssertionError: assert (201 == 201 and 'Globex SA' == 'Acme Corp'
+E        +  where 201 = <Response [201 Created]>.status_code
+E         
+E         - Acme Corp
+E         + Globex SA)
+
+tests/incidents/test_owasp_tenancy.py:93: AssertionError
+______________________ test_user_without_company_gets_403 ______________________
+
+client_as = <function client_as.<locals>._make at 0x11515f060>
+two_companies = None
+
+>       assert nobody.get("/api/incidents").status_code == 403
+E       AssertionError: assert 200 == 403
+E        +  where 200 = <Response [200 OK]>.status_code
+E        +    where <Response [200 OK]> = get('/api/incidents')
+E        +      where get = <starlette.testclient.TestClient object at 0x11517c9e0>.get
+
+tests/incidents/test_owasp_tenancy.py:98: AssertionError
+_________________ test_csv_analysis_and_export_are_staff_only __________________
+
+client_as = <function client_as.<locals>._make at 0x115185bc0>
+
+>       assert acme.post("/api/incidents/analyze",
+E       AssertionError: assert 200 == 403
+E        +  where 200 = <Response [200 OK]>.status_code
+E        +    where <Response [200 OK]> = post('/api/incidents/analyze', files={'file': ('t.csv', b'a,b\n1,2\n', 'text/csv')})
+E        +      where post = <starlette.testclient.TestClient object at 0x11517e9c0>.post
+
+tests/incidents/test_owasp_tenancy.py:104: AssertionError
+=========================== short test summary info ============================
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_read_rfps[/rfp/tickets]
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X]
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X/trace]
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_read_rfps[/rfp/tickets/RFP-X/final-document]
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_upload_rfps
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_self_registered_user_cannot_approve
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_manager_cannot_impersonate_the_expected_approver
+FAILED tests/pipelines/test_owasp_rfp_access.py::test_without_approver_mapping_only_admin_decides
+FAILED tests/incidents/test_owasp_tenancy.py::test_client_only_lists_own_company_even_if_asking_for_another
+FAILED tests/incidents/test_owasp_tenancy.py::test_client_cannot_read_foreign_ticket_by_id
+FAILED tests/incidents/test_owasp_tenancy.py::test_client_cannot_change_ticket_status
+FAILED tests/incidents/test_owasp_tenancy.py::test_client_creates_tickets_only_for_own_company
+FAILED tests/incidents/test_owasp_tenancy.py::test_user_without_company_gets_403
+FAILED tests/incidents/test_owasp_tenancy.py::test_csv_analysis_and_export_are_staff_only
+14 failed, 5 passed in 1.87s

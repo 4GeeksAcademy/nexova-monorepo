@@ -7,7 +7,7 @@ export async function GET(
   const { id } = await params;
   const authorization = request.headers.get("authorization");
 
-  const backendResponse = await fetch(`${BACKEND_API_URL}/inventory/products/${id}`, {
+  const backendResponse = await fetch(`${BACKEND_API_URL}/inventory/products/${encodeURIComponent(id)}`, {
     headers: authorization ? { authorization } : {},
     cache: "no-store",
   });

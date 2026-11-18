@@ -77,6 +77,13 @@
   - **Trazabilidad:** `rfp_intake/trace.py` envuelve los nodos de las Partes 1–3 y escribe agente, input/output resumidos y timestamps en `rfp_trace_event` (y en `state["trace"]` en la Parte 3).
   - **Documento final** determinista (`final_document.py`) en `rfp_final_document`; lo genera la última rama en aprobar y el ticket pasa a `terminado`. Migración 010 (a mano en Supabase).
 - Autenticación de la API: esquema `HTTPBearer` (`security.bearer_scheme` + `get_bearer_token`) en lugar de `OAuth2PasswordBearer`, para que Swagger (`/docs` → Authorize) acepte pegar el `access_token` de `POST /auth/login` (que recibe JSON, no form-data). Sin cabecera o con token inválido sigue respondiendo 401 + `WWW-Authenticate: Bearer`; el backoffice no cambia.
+- Seguridad (auditoría OWASP Top 10, ver `docs/security/owasp-top10-audit.md`):
+  - **Autorización.** `services/api/authz.py` es la única definición de personal interno (`admin`/`manager`, la misma de `agent/guardrails/tenancy.py`): `require_staff`, `require_admin` y `current_tenant`. El registro público crea siempre `user` sin empresa, que no accede a datos de negocio. Los roles se asignan con `scripts/set_user_role.py`, nunca por API.
+  - **Incidentes** con la tenancy del agente: el cliente solo ve su empresa (ajenos → 404); estado y CSV solo staff. **RFP**: decide el email de `RFP_APPROVERS` (JSON nombre → email) o un admin.
+  - **Autenticación.** Rate limit en memoria (`rate_limit.py`, un proceso) y claim `iat` con `token_still_valid()`: cuenta inactiva o contraseña cambiada invalidan los tokens anteriores.
+  - **HTTP.** `http_security.py`: cabeceras defensivas, CORS sin `*` y `/docs` tras `ENABLE_API_DOCS`. El WebSocket comprueba `Origin`.
+  - **Contenido externo para LLM.** Los documentos de RFP pasan por `agent.guardrails.isolation.sanitize_text` y se escapan `<`/`>` en `rfp_intake/prompts.wrap_document`.
+  - **Infra.** `docker-compose.yml` endurecido por defecto (puertos solo en 127.0.0.1, Redis/Qdrant sin puertos y con `REDIS_PASSWORD`/`QDRANT_API_KEY`, no-root, `cap_drop: ALL`, `no-new-privileges`, `UIS_MODE=production`). `docker-compose.dev.yml` es el override de desarrollo. Servidor: `infra/server/bootstrap.sh`.
 
 ## Restricciones técnicas
 - Dependencia obligatoria de variable de entorno para URL de API; sin configuración no funciona la integración.

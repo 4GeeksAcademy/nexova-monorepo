@@ -237,6 +237,11 @@ export function isGenerating(state: ChatState): boolean {
   );
 }
 
+/** Primer frame tras abrir el socket: autentica sin exponer el JWT en la URL. */
+export function authFrame(token: string): string {
+  return JSON.stringify({ event: "auth", data: { token } });
+}
+
 export function userMessageFrame(sessionId: string, text: string): string {
   return JSON.stringify({ event: "user_message", data: { session_id: sessionId, text } });
 }

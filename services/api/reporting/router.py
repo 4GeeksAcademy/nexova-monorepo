@@ -30,7 +30,7 @@ from reporting.schemas import (
     PipelineRunRequest,
     WeeklyPerformanceReport,
 )
-from security import get_current_user
+from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
 from tasks.reporting import run_weekly_performance_pipeline
 
 KPIS_CACHE_PREFIX = "reporting:"
@@ -56,7 +56,7 @@ def _require_monday(week_start: date | None) -> None:
 
 
 @router.get("/pipeline-runs/latest", response_model=PipelineRunRead)
-def get_latest_pipeline_run(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+def get_latest_pipeline_run(current_user: User = Depends(require_staff)) -> dict[str, Any]:
     """Estado y metadata de la última corrida del pipeline.
 
     TODO: restringir a admins (Role.ADMIN) cuando exista un flujo para crearlos.
@@ -79,7 +79,7 @@ def get_latest_pipeline_run(current_user: User = Depends(get_current_user)) -> d
 )
 def trigger_pipeline_run(
     payload: PipelineRunRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> dict[str, Any]:
     """Encola una corrida manual del flow y devuelve el `task_id` sin esperarla.
 
@@ -132,7 +132,7 @@ def get_weekly_office_program_performance(
     week_start: date | None = Query(
         None, description="Lunes de la semana (YYYY-MM-DD). Por defecto, la última calculada."
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ) -> dict[str, Any]:
     """KPIs por oficina y programa de una semana: lo que consume el dashboard.
 
