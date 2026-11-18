@@ -20,6 +20,8 @@ export interface Asset {
   category: AssetCategory;
   office: Office;
   current_stock: number;
+  /** Umbral de stock bajo del producto (lo envía el backend; opcional porque no se valida al recibirlo). */
+  min_stock_threshold?: number;
 }
 
 export interface AssetCreatePayload {
