@@ -18,6 +18,11 @@ from typing import Any, AsyncIterator, Protocol
 from rfp import pipeline_bridge
 
 KEEPALIVE_INTERVAL_MS = 15_000
+# `XREAD BLOCK` espera hasta KEEPALIVE_INTERVAL_MS sin datos. El cliente de Redis
+# corta la lectura al llegar a su `socket_timeout` (5 s por defecto en redis-py 8),
+# así que debe ser mayor que el bloqueo: si no, cada conexión ociosa muere a los
+# 5 s con TimeoutError, el stream se cierra y nunca se envía el keep-alive.
+SOCKET_TIMEOUT_SECONDS = KEEPALIVE_INTERVAL_MS / 1000 + 10
 RETRY_MS = 3_000
 READ_BATCH = 100
 _REDIS_ID = re.compile(r"^\d+-\d+$")
@@ -48,7 +53,7 @@ class RedisEventReader:
     def __init__(self, url: str) -> None:
         import redis.asyncio as aioredis
 
-        self._redis = aioredis.from_url(url, decode_responses=True)
+        self._redis = aioredis.from_url(url, decode_responses=True, socket_timeout=SOCKET_TIMEOUT_SECONDS)
 
     async def last_id(self) -> str:
         latest = await self._redis.xrevrange(pipeline_bridge.EVENTS_STREAM_KEY, count=1)

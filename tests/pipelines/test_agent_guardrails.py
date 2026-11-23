@@ -616,7 +616,7 @@ def test_log_failure_never_breaks_a_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 def _decisions(tmp_path: Path) -> list[dict[str, Any]]:
     path = tmp_path / "agent_decisions.jsonl"  # <AGENT_TRACE_DIR>/../agent_decisions.jsonl
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_decision_log_records_what_the_agent_did_and_why(isolated_logs: Path) -> None:
@@ -635,7 +635,7 @@ def test_decision_log_records_what_the_agent_did_and_why(isolated_logs: Path) ->
     assert record["reason"].startswith("enrutador llm → tickets")
     assert record["latency_ms"] is not None and "guard_input" in record["nodes"]
     # Minimización: ni la pregunta ni la respuesta, solo longitudes y hash.
-    raw = (isolated_logs.parent / "agent_decisions.jsonl").read_text()
+    raw = (isolated_logs.parent / "agent_decisions.jsonl").read_text(encoding="utf-8")
     assert "ana.garcia" not in raw and "tickets abiertos" not in raw
     assert record["question_chars"] == len(question) and len(record["question_sha256"]) == 16
 

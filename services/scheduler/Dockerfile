@@ -35,6 +35,12 @@ ARG APP_GID=1000
 RUN groupadd --gid "${APP_GID}" app \
  && useradd --uid "${APP_UID}" --gid app --no-create-home --shell /usr/sbin/nologin app
 
+# El usuario no tiene home: Prefect (que el pipeline arranca como subproceso) crea
+# su SQLite en $PREFECT_HOME y sin directorio escribible falla con "unable to open
+# database file". Igual que en services/Dockerfile (API y worker).
+ENV HOME=/tmp/app-home PREFECT_HOME=/tmp/app-home/.prefect
+RUN mkdir -p /tmp/app-home && chown app:app /tmp/app-home
+
 WORKDIR /repo
 USER app
 
