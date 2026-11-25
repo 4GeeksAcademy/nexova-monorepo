@@ -118,7 +118,7 @@ Los rechazos de MCP Auth se registran como `{"event": "auth_rejected", "status":
 | `MCP_RESOURCE_URL` | `https://<codespace>-8100.app.github.dev/mcp` | URL pública del endpoint MCP. Es el *API identifier* del recurso en Logto y el `aud` esperado. |
 | `MCP_OAUTH_ISSUER` | `https://<tenant>.logto.app/oidc` | Issuer OIDC de Logto. La configuración se descubre en `/.well-known/openid-configuration`. |
 | `NEXOVA_API_URL` | `http://api:8000` | API de Nexova. |
-| `NEXOVA_API_EMAIL` / `NEXOVA_API_PASSWORD` | — | Cuenta de servicio en la API: un usuario creado con `POST /users`. |
+| `NEXOVA_API_EMAIL` / `NEXOVA_API_PASSWORD` | — | Cuenta de servicio en la API: un usuario creado con `POST /auth/register` (o `POST /users` por un admin) y con rol `supervisor` o superior (`scripts/set_user_role.py`). |
 | `MCP_UPSTREAM_TIMEOUT_SECONDS` | `5` | Timeout hacia la API. |
 | `MCP_HOST` / `MCP_PORT` | `0.0.0.0` / `8100` | |
 

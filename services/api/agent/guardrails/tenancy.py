@@ -72,7 +72,13 @@ class Tenant:
 
 INTERNAL_TENANT = Tenant(client_company=None, is_staff=True)
 
-_STAFF_ROLES = {"admin", "manager"}
+
+
+def _is_internal_role(role_code: str) -> bool:
+    """Personal interno = cualquier rol de la jerarquía (rango ≥ 1: employee, supervisor, admin)."""
+    from rbac import store  # import perezoso: `rbac` no depende del agente
+
+    return store.rank_of(role_code) >= 1
 
 
 def tenant_for_user(user: Any) -> Tenant:
@@ -80,7 +86,7 @@ def tenant_for_user(user: Any) -> Tenant:
     role = getattr(getattr(user, "role", None), "value", getattr(user, "role", None))
     return Tenant(
         client_company=getattr(user, "client_company", None) or None,
-        is_staff=str(role) in _STAFF_ROLES,
+        is_staff=_is_internal_role(str(role)),
     )
 
 

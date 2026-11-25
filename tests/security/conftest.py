@@ -80,7 +80,7 @@ def register(api):
     """Registra por el endpoint público y devuelve (id, token)."""
 
     def _register(email: str, password: str = "Sup3r-secreta!", role: str | None = None):
-        r = api.post("/users", json={"email": email, "password": password})
+        r = api.post("/auth/register", json={"email": email, "password": password})
         assert r.status_code == 201, r.text
         user_id = r.json()["id"]
         if role:

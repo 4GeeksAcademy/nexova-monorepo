@@ -27,9 +27,11 @@ interface Props {
   incidents: Incident[];
   pendingIds: ReadonlySet<number>;
   onChangeStatus: (incident: Incident, next: Status) => void;
+  /** Cambiar el estado es «actualizar» (supervisor o superior). Sin permiso se muestra solo el estado. */
+  canUpdate?: boolean;
 }
 
-export default function IncidentsTable({ incidents, pendingIds, onChangeStatus }: Props) {
+export default function IncidentsTable({ incidents, pendingIds, onChangeStatus, canUpdate = true }: Props) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
       <table className="min-w-full divide-y divide-stone-200 text-left text-sm">
@@ -58,6 +60,11 @@ export default function IncidentsTable({ incidents, pendingIds, onChangeStatus }
                 <td className="px-4 py-3 text-stone-700">{BRANCH_LABELS[incident.branch]}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-stone-600">{formatDate(incident.created_at)}</td>
                 <td className="px-4 py-3">
+                  {!canUpdate ? (
+                    <span className={`inline-block rounded-lg border px-3 py-1 text-xs font-medium ${STATUS_TONE[incident.status]}`}>
+                      {STATUS_LABELS[incident.status]}
+                    </span>
+                  ) : (
                   <select
                     aria-label={`Estado de la incidencia ${incident.id}`}
                     value={incident.status}
@@ -73,6 +80,7 @@ export default function IncidentsTable({ incidents, pendingIds, onChangeStatus }
                       </option>
                     ))}
                   </select>
+                  )}
                 </td>
               </tr>
             );

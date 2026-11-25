@@ -135,14 +135,34 @@ describe("peticiones protegidas", () => {
   it("me() adjunta el token guardado como Bearer (camino feliz)", async () => {
     setToken("jwt-123");
     fetchMock.mockResolvedValue(
-      json({ email: "ana@example.com", role: "user", profile: { id: "p", user_id: "u", name: null, phone: null, address: null } }),
+      json({
+        email: "ana@example.com",
+        role: "supervisor",
+        role_id: "supervisor",
+        rank: 2,
+        department_id: "sales",
+        department_name: "Sales and Business Development",
+        profile: { id: "p", user_id: "u", name: null, phone: null, address: null },
+      }),
     );
 
     const result = await me();
 
     expect(result.email).toBe("ana@example.com");
+    expect([result.role, result.rank, result.department_id]).toEqual(["supervisor", 2, "sales"]);
     const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer jwt-123");
+  });
+
+  it("me() rechaza una respuesta sin rango: el rol decide qué se muestra y no se adivina (fallo)", async () => {
+    setToken("jwt-123");
+    fetchMock.mockResolvedValue(
+      json({ email: "ana@example.com", role: "user", profile: { id: "p", user_id: "u", name: null, phone: null, address: null } }),
+    );
+
+    const error = await failure(me());
+
+    expect(error.message).toBe(GENERIC_ERROR_MESSAGE);
   });
 
   it("sin token guardado no envía cabecera Authorization (límite)", async () => {

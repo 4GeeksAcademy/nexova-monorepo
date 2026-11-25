@@ -16,7 +16,9 @@ import { useSectionView } from "@/lib/useSectionView";
 
 const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrador",
-  manager: "Manager",
+  supervisor: "Supervisor",
+  employee: "Empleado",
+  manager: "Supervisor",
   user: "Usuario",
 };
 

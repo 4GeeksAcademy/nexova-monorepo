@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@/lib/AuthContext";
+import { can } from "@/lib/permissions";
 import {
   APPROVAL_STATUS_LABELS,
   DECISION_LABELS,
@@ -48,6 +50,8 @@ interface ApprovalPanelProps {
 }
 
 export default function ApprovalPanel({ ticketId, section, maxRounds, onChanged }: ApprovalPanelProps) {
+  const { user } = useAuth();
+  const canDecide = can(user, "approve");
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState<Decision | "reopen" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +110,13 @@ export default function ApprovalPanel({ ticketId, section, maxRounds, onChanged 
         </p>
       )}
 
-      {approval.status === "pendiente" && (
+      {approval.status === "pendiente" && !canDecide && (
+        <p className="mt-3 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700">
+          Pendiente de aprobación. Decidir (aprobar, pedir cambios o rechazar) requiere el rol de supervisor o superior.
+        </p>
+      )}
+
+      {approval.status === "pendiente" && canDecide && (
         <div className="mt-3 space-y-3">
           {escalated && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -152,6 +162,7 @@ export default function ApprovalPanel({ ticketId, section, maxRounds, onChanged 
             Sección rechazada{approval.comment ? `: ${approval.comment}` : "."} El documento final no se generará
             hasta reabrir y aprobar esta sección.
           </p>
+          {canDecide && (
           <button
             type="button"
             onClick={reopen}
@@ -160,6 +171,7 @@ export default function ApprovalPanel({ ticketId, section, maxRounds, onChanged 
           >
             {sending === "reopen" ? "Reabriendo…" : "Reabrir aprobación"}
           </button>
+          )}
         </div>
       )}
 

@@ -24,6 +24,8 @@ import {
   type Incident,
   type IncidentFilters,
 } from "@/lib/incident-manager";
+import { useAuth } from "@/lib/AuthContext";
+import { can } from "@/lib/permissions";
 import { useSectionView } from "@/lib/useSectionView";
 
 interface Loaded {
@@ -42,6 +44,7 @@ function errorMessage(err: unknown): string {
 
 export default function IncidentListPage() {
   useSectionView("incidents");
+  const { user } = useAuth();
   const [filters, setFilters] = useState<IncidentFilters>({});
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -210,7 +213,7 @@ export default function IncidentListPage() {
         )}
 
         {!isLoading && !error && incidents && incidents.length > 0 && (
-          <IncidentsTable incidents={incidents} pendingIds={pendingIds} onChangeStatus={handleChangeStatus} />
+          <IncidentsTable incidents={incidents} pendingIds={pendingIds} onChangeStatus={handleChangeStatus} canUpdate={can(user, "update")} />
         )}
       </div>
     </section>

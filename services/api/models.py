@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 from sqlmodel import Field as SQLField
 from sqlmodel import SQLModel
 
@@ -111,9 +111,22 @@ class ProviderResponse(ProviderBase):
 
 
 class Role(str, Enum):
+    """Códigos de rol conocidos. Jerarquía interna: employee < supervisor < admin (ver `rbac.catalog`).
+
+    `MANAGER` (equivale a `supervisor`) y `USER` (cuenta externa/cliente) son códigos anteriores al
+    RBAC que siguen siendo válidos en datos sin migrar. `User.role` es un `str` para admitir además
+    los roles creados por un admin en `POST /roles`.
+    """
+
     ADMIN = "admin"
+    SUPERVISOR = "supervisor"
+    EMPLOYEE = "employee"
     MANAGER = "manager"
     USER = "user"
+
+
+def _role_code(value: object) -> object:
+    return value.value if isinstance(value, Enum) else value
 
 
 class ProfileFields(BaseModel):
@@ -136,17 +149,59 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
-    role: Role | None = None
+    role: str | None = None
+
+    _role = field_validator("role", mode="before")(_role_code)
+
+
+class UserAdminCreate(BaseModel):
+    """`POST /users` (solo admin): cuenta con rol y departamento asignados de forma independiente."""
+
+    email: EmailStr
+    password: str = Field(min_length=8)
+    role_id: str
+    department_id: str | None = None
+    name: str | None = None
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+
+class UserAssignment(BaseModel):
+    """`PATCH /users/{id}/assignment`: solo cambia lo que viene en el cuerpo.
+
+    `department_id: null` quita el departamento; omitirlo lo deja intacto (igual que `role_id`).
+    """
+
+    role_id: str | None = None
+    department_id: str | None = None
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "UserAssignment":
+        if not self.model_fields_set & {"role_id", "department_id"}:
+            raise ValueError("Indica `role_id` y/o `department_id`.")
+        if "role_id" in self.model_fields_set and self.role_id is None:
+            raise ValueError("`role_id` no puede ser null: un usuario siempre tiene rol.")
+        return self
 
 
 class UserRead(BaseModel):
     id: str
     email: EmailStr
     is_active: bool
-    role: Role
+    role: str
+    department_id: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    _role = field_validator("role", mode="before")(_role_code)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def role_id(self) -> str:
+        return self.role
 
 
 class ProfileUpdate(BaseModel):
@@ -167,7 +222,11 @@ class ProfileRead(BaseModel):
 
 class MeRead(BaseModel):
     email: EmailStr
-    role: Role
+    role: str
+    role_id: str
+    rank: int
+    department_id: str | None = None
+    department_name: str | None = None
     profile: ProfileRead
 
 
@@ -210,7 +269,9 @@ class User(BaseModel):
     email: EmailStr
     hashed_password: str
     is_active: bool = True
-    role: Role = Role.USER
+    # Código del rol (eje de capacidad). Independiente de `department_id` (eje de alcance de datos).
+    role: str = Role.USER.value
+    department_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     password_changed_at: datetime | None = None
     # Empresa cliente de outsourcing a la que pertenece el usuario (p. ej. "RetailMax Corp").
@@ -220,6 +281,8 @@ class User(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    _role = field_validator("role", mode="before")(_role_code)
+
 
 class UserRegistered(BaseModel):
     """Respuesta de `POST /users` (registro). Sin `email`: es un flujo de
@@ -227,10 +290,12 @@ class UserRegistered(BaseModel):
 
     id: str
     is_active: bool
-    role: Role
+    role: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    _role = field_validator("role", mode="before")(_role_code)
 
 
 # --- Respuestas genéricas compartidas ----------------------------------------

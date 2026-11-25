@@ -84,7 +84,7 @@ def register(api):
     """Registra por el endpoint público y devuelve el id del usuario."""
 
     def _register(email: str = "ana@example.com", password: str = DEFAULT_PASSWORD, **extra) -> str:
-        response = api.post("/users", json={"email": email, "password": password, **extra})
+        response = api.post("/auth/register", json={"email": email, "password": password, **extra})
         assert response.status_code == 201, response.text
         return response.json()["id"]
 

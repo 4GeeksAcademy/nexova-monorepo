@@ -1,8 +1,9 @@
 """
 Router: /auth
 
+- POST /auth/register          -> registro público: crea siempre una cuenta externa (`user`, sin departamento).
 - POST /auth/login             -> valida credenciales, devuelve un JWT.
-- GET  /auth/me                -> usuario autenticado (email, role) + su Profile.
+- GET  /auth/me                -> usuario autenticado (email, rol y departamento) + su Profile.
 - POST /auth/forgot-password   -> envia (si el usuario existe) un email con link de reset.
 - POST /auth/reset-password    -> consume el token del email y fija una nueva contraseña.
 - POST /auth/change-password   -> (ruta protegida) cambia la contraseña de la sesion activa.
@@ -28,6 +29,8 @@ from models import (
     ResetPasswordRequest,
     Token,
     User,
+    UserCreate,
+    UserRegistered,
 )
 from password_resets import consume_reset_token, create_reset_token
 from rate_limit import (
@@ -46,12 +49,20 @@ from security import (
 
 from routes.profiles import get_profile_by_user_id
 from routes.telemetry import log_telemetry_event
-from routes.users import get_user_by_email, set_user_password
+from routes.users import get_user_by_email, register_external_user, set_user_password
+from authz import role_code
+from rbac import store as rbac_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 
 GENERIC_FORGOT_PASSWORD_MESSAGE = "Si esa dirección está registrada, recibirás un enlace en breve."
+
+
+@router.post("/register", response_model=UserRegistered, status_code=201)
+def register(payload: UserCreate) -> UserRegistered:
+    """Registro público. Nunca concede acceso interno: el rol y el departamento los asigna un admin."""
+    return UserRegistered.model_validate(register_external_user(payload))
 
 
 @router.post("/login", response_model=Token)
@@ -98,7 +109,7 @@ def login(payload: LoginRequest, request: Request) -> Token:
         session_id=None,
         user_id=user.id,
         request_id=None,
-        properties={"role": user.role.value},
+        properties={"role": role_code(user)},
     )
     return Token(access_token=access_token)
 
@@ -109,7 +120,17 @@ def read_me(current_user: User = Depends(get_current_user)) -> MeRead:
     if profile is None:
         raise HTTPException(status_code=404, detail="Perfil no encontrado.")
 
-    return MeRead(email=current_user.email, role=current_user.role, profile=profile)
+    code = role_code(current_user)
+    department = rbac_store.get_department(current_user.department_id) if current_user.department_id else None
+    return MeRead(
+        email=current_user.email,
+        role=code,
+        role_id=code,
+        rank=rbac_store.rank_of(code),
+        department_id=current_user.department_id,
+        department_name=department["name"] if department else None,
+        profile=profile,
+    )
 
 
 @router.post("/forgot-password", response_model=MessageResponse)

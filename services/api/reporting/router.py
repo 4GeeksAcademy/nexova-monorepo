@@ -30,7 +30,7 @@ from reporting.schemas import (
     PipelineRunRequest,
     WeeklyPerformanceReport,
 )
-from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
+from authz import require_staff, require_supervisor  # OWASP A01: personal interno; acciones → supervisor
 from tasks.reporting import run_weekly_performance_pipeline
 
 KPIS_CACHE_PREFIX = "reporting:"
@@ -79,7 +79,7 @@ def get_latest_pipeline_run(current_user: User = Depends(require_staff)) -> dict
 )
 def trigger_pipeline_run(
     payload: PipelineRunRequest | None = None,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_supervisor),
 ) -> dict[str, Any]:
     """Encola una corrida manual del flow y devuelve el `task_id` sin esperarla.
 
