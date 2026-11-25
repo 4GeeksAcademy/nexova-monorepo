@@ -102,6 +102,7 @@
 - Notificaciones en tiempo real (Hito 10 · Parte 1, ver `docs/rfp/rfp-sse-design.md`):
   - **Bus API↔worker.** El worker publica en el Redis Stream `rfp:events` (`data/pipelines/rfp_intake/events.py`, recortado a ~500, dedupe por `ticket_id` con `SET NX`, nunca lanza); la API lo lee con `redis.asyncio` en `GET /rfp/events` (`services/api/rfp/events.py`). Sin dependencias nuevas en producción (`fakeredis` solo en dev).
   - **Contrato.** Evento nombrado `rfp_ticket_created`, `data` JSON plano con los campos de `rfp_ticket`/`rfp_metadata` y `status = analizando` (el `analyzing` del BRIEFING); `id:` = id de la entrada de Redis.
+  - **Timeout de Redis.** El `socket_timeout` del cliente `redis.asyncio` debe ser mayor que el `XREAD BLOCK` (`SOCKET_TIMEOUT_SECONDS` en `rfp/events.py`); el defecto de redis-py 8 (5 s) cerraba el stream en reposo.
   - **Recuperación.** `Last-Event-ID` con replay corto + deduplicación por `ticket_id` en el cliente. Keep-alive de 15 s; el cliente reabre si pasan 45 s sin bytes.
   - **Cliente.** `fetch` + `ReadableStream` con `Authorization: Bearer` (nunca `EventSource`), proxy Next sin `.text()` (`app/api/rfp/events/route.ts`) y backoff 1–30 s con jitter. La ruta `/rfp/events` está excluida de la telemetría `api_request_*`.
   - **Tests del frontend.** `vitest` (devDependency solo de `uis/backoffice`, `npm test`) para el parser SSE, el backoff y la reconexión con red simulada.

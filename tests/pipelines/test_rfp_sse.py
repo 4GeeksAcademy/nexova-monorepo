@@ -296,3 +296,21 @@ def test_redis_reader_replays_only_what_came_after_last_event_id(monkeypatch):
         return seen
 
     assert asyncio.run(scenario()) == ["T1", "T2"]  # T0 ya se recibió antes de la caída
+
+
+def test_redis_reader_socket_timeout_outlasts_the_blocking_read():
+    """Regresión: con el `socket_timeout` por defecto (5 s) un `XREAD BLOCK` de 15 s
+    moría con TimeoutError a los 5 s y el stream se cerraba sin enviar el keep-alive.
+    Se construye el lector real (los demás tests lo crean con `__new__`, sin `__init__`)."""
+    from rfp import events as rfp_events
+
+    async def scenario() -> float | None:
+        reader = rfp_events.RedisEventReader("redis://localhost:6379/0")  # no conecta hasta el primer comando
+        try:
+            kwargs = reader._redis.connection_pool.connection_kwargs  # noqa: SLF001
+            return kwargs.get("socket_timeout", kwargs.get("orig_socket_timeout"))
+        finally:
+            await reader.aclose()
+
+    timeout = asyncio.run(scenario())
+    assert timeout is None or timeout > rfp_events.KEEPALIVE_INTERVAL_MS / 1000

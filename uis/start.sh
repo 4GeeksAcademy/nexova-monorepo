@@ -11,6 +11,11 @@ MODE="${UIS_MODE:-production}"
 
 run_app() {  # run_app <dir> <puerto>
   cd "$1"
+  # `next-env.d.ts` es un archivo generado (ignorado por git) que Next reescribe, con
+  # contenido distinto en `dev` y en `build`. En un bind mount de Windows puede llegar
+  # como `-rw-r--r-- root` y `node` no puede escribirlo (EACCES): el build falla y,
+  # por `set -e`, esta app no arranca. Borrarlo solo exige permiso sobre el directorio.
+  rm -f next-env.d.ts
   if [ "$MODE" = "development" ]; then
     exec ./node_modules/.bin/next dev --webpack -p "$2" -H 0.0.0.0
   fi
