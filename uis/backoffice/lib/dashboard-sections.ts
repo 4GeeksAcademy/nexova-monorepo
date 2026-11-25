@@ -10,6 +10,13 @@ export interface DashboardSection {
   description: string;
   /** Área de negocio, mismo vocabulario que el `eyebrow` de cada sección. */
   area: string;
+  /** Rango mínimo del rol para ver el acceso (por defecto 1: personal interno). */
+  minRank?: number;
+}
+
+/** Accesos visibles para un rango de rol (la API vuelve a autorizar cada petición). */
+export function sectionsForRank(rank: number): readonly DashboardSection[] {
+  return DASHBOARD_SECTIONS.filter((section) => rank >= (section.minRank ?? 1));
 }
 
 export const DASHBOARD_SECTIONS: readonly DashboardSection[] = [
@@ -48,6 +55,19 @@ export const DASHBOARD_SECTIONS: readonly DashboardSection[] = [
     title: "Recepción de RFPs",
     description: "Bandeja de solicitudes y aprobación por departamento.",
     area: "Ventas",
+  },
+  {
+    href: "/internal-reports",
+    title: "Informes internos",
+    description: "Notas e informes de tu departamento.",
+    area: "Departamento",
+  },
+  {
+    href: "/admin/access",
+    title: "Roles y departamentos",
+    description: "Administra roles, departamentos y la asignación de usuarios.",
+    area: "Administración",
+    minRank: 3,
   },
   {
     href: "/telemetry",

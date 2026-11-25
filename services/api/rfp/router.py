@@ -43,7 +43,7 @@ import logging
 import os
 import unicodedata
 
-from authz import is_admin, require_staff
+from authz import is_admin, require_staff, require_supervisor
 from fastapi import (
     APIRouter,
     Depends,
@@ -92,7 +92,14 @@ router = APIRouter(prefix="/rfp", tags=["rfp"])
 
 
 def require_internal_user(current_user: User = Depends(require_staff)) -> User:
-    """Personal interno = rol admin/manager. Una cuenta autoregistrada (`user`) nunca lo es."""
+    """Personal interno = rol employee, supervisor o admin. Una cuenta autoregistrada (`user`) nunca lo es."""
+    if current_user.client_company:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo personal interno de Nexova.")
+    return current_user
+
+
+def require_internal_supervisor(current_user: User = Depends(require_supervisor)) -> User:
+    """Aprobar o regenerar exige rol `supervisor` o superior (además de ser personal interno)."""
     if current_user.client_company:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo personal interno de Nexova.")
     return current_user
@@ -180,7 +187,7 @@ _DRAFTING_IN_PROGRESS = ("generando_borrador", "en_evaluación")
     response_model=RfpDraftingAccepted,
     summary="(Re)genera y evalúa los borradores por departamento (Parte 2)",
 )
-def regenerate_drafts(ticket_id: str, current_user: User = Depends(require_internal_user)) -> RfpDraftingAccepted:
+def regenerate_drafts(ticket_id: str, current_user: User = Depends(require_internal_supervisor)) -> RfpDraftingAccepted:
     enforce_llm_budget("rfp", current_user.id)
     store = pipeline_bridge.get_store()
     try:
@@ -277,7 +284,7 @@ def _load_ticket(ticket_id: str) -> dict:
 def open_approvals(
     ticket_id: str,
     department_id: DepartmentId | None = Query(default=None, description="Solo este departamento"),
-    _: User = Depends(require_internal_user),
+    _: User = Depends(require_internal_supervisor),
 ) -> RfpApprovalAccepted:
     ticket = _load_ticket(ticket_id)
     try:
@@ -310,7 +317,7 @@ def submit_decision(
     ticket_id: str,
     department_id: DepartmentId,
     body: ApprovalDecisionIn,
-    current_user: User = Depends(require_internal_user),
+    current_user: User = Depends(require_internal_supervisor),
 ) -> RfpDecisionAccepted:
     ticket = _load_ticket(ticket_id)
     try:

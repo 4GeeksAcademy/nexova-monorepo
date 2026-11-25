@@ -2,7 +2,8 @@ import { getToken, setToken } from "./auth-storage";
 import { handleSessionExpired } from "./session";
 import { CONNECTION_ERROR_MESSAGE, GENERIC_ERROR_MESSAGE, statusMessage, userMessage } from "./http-errors";
 
-export type Role = "admin" | "manager" | "user";
+/** Código del rol (`employee`, `supervisor`, `admin`, `user` externo, heredado `manager` o uno creado por un admin). */
+export type Role = string;
 
 export interface ProfileRead {
   id: string;
@@ -15,6 +16,11 @@ export interface ProfileRead {
 export interface MeRead {
   email: string;
   role: Role;
+  role_id: string;
+  /** Rango del rol: 0 externo · 1 employee · 2 supervisor · 3 admin. */
+  rank: number;
+  department_id: string | null;
+  department_name: string | null;
   profile: ProfileRead;
 }
 
@@ -153,8 +159,33 @@ export async function register(payload: RegisterPayload): Promise<string> {
   return token.access_token;
 }
 
+const nullableString = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/** Valida la respuesta de `/auth/me` antes de usarla (rol y departamento deciden qué se muestra). */
+export function parseMe(raw: unknown): MeRead {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  if (
+    typeof data.email !== "string" ||
+    typeof data.role !== "string" ||
+    typeof data.rank !== "number" ||
+    typeof data.profile !== "object" ||
+    data.profile === null
+  ) {
+    throw new AuthApiError(0, GENERIC_ERROR_MESSAGE);
+  }
+  return {
+    email: data.email,
+    role: data.role,
+    role_id: typeof data.role_id === "string" ? data.role_id : data.role,
+    rank: data.rank,
+    department_id: nullableString(data.department_id),
+    department_name: nullableString(data.department_name),
+    profile: data.profile as ProfileRead,
+  };
+}
+
 export async function me(): Promise<MeRead> {
-  return protectedAuthRequest<MeRead>("/api/auth/me");
+  return parseMe(await protectedAuthRequest<unknown>("/api/auth/me"));
 }
 
 export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileRead> {

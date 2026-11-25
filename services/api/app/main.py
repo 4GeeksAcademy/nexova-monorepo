@@ -46,6 +46,7 @@ from database import create_db_and_tables
 from http_security import allowed_origins, docs_enabled, security_headers
 from knowledge import router as knowledge
 from models import HealthResponse
+from rbac import router as rbac
 from reporting import router as reporting
 from rfp import router as rfp
 from routers import inventory
@@ -242,6 +243,8 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+for _rbac_router in rbac.routers:
+    app.include_router(_rbac_router)
 app.include_router(profiles.router)
 app.include_router(incidents.router)
 if incident_manager is not None:

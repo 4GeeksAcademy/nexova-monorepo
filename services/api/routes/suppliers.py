@@ -9,7 +9,7 @@ from tinydb import TinyDB
 
 import cache
 from models import Country, DeleteResponse, ProviderCreate, Status, User, VALID_CATEGORIES
-from authz import require_staff  # OWASP A01: solo personal interno (admin/manager)
+from authz import require_admin, require_employee, require_supervisor  # roles: crear / actualizar / eliminar
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "suppliers.json"
 TABLE_NAME = "suppliers"
@@ -70,7 +70,7 @@ def _doc_to_response(doc: object) -> SupplierRead:
 
 @router.post("", response_model=SupplierRead, status_code=201)
 def create_supplier(
-    supplier: SupplierCreate, current_user: User = Depends(require_staff)
+    supplier: SupplierCreate, current_user: User = Depends(require_employee)
 ) -> SupplierRead:
     db, table = _get_table()
     try:
@@ -133,7 +133,7 @@ def get_supplier(supplier_id: int) -> SupplierRead:
 def update_supplier_rate(
     supplier_id: int,
     payload: RateUpdate,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_supervisor),
 ) -> SupplierRead:
     db, table = _get_table()
     try:
@@ -162,7 +162,7 @@ def update_supplier_rate(
 def update_supplier_status(
     supplier_id: int,
     payload: StatusUpdate,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_supervisor),
 ) -> SupplierRead:
     db, table = _get_table()
     try:
@@ -183,7 +183,7 @@ def update_supplier_status(
 
 @router.delete("/{supplier_id}", response_model=DeleteResponse)
 def delete_supplier(
-    supplier_id: int, current_user: User = Depends(require_staff)
+    supplier_id: int, current_user: User = Depends(require_admin)
 ) -> DeleteResponse:
     db, table = _get_table()
     try:

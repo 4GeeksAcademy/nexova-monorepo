@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from agent.guardrails.tenancy import Tenant
-from authz import current_tenant, require_staff
+from authz import current_tenant, require_supervisor
 from database import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
@@ -98,7 +98,7 @@ def get_incident(
 @router.patch(
     "/{incident_id}/status",
     response_model=IncidentRead,
-    dependencies=[Depends(require_staff)],
+    dependencies=[Depends(require_supervisor)],
 )
 def update_incident_status(
     incident_id: int, body: IncidentStatusUpdate, db: Session = Depends(get_db)

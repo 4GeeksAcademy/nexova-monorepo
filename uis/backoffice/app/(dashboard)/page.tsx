@@ -1,9 +1,8 @@
-import Link from "next/link";
 import DashboardOverview from "@/components/dashboard/DashboardOverview";
+import SectionGrid from "@/components/dashboard/SectionGrid";
 import SectionViewTracker from "@/components/SectionViewTracker";
-import { DASHBOARD_SECTIONS, UPCOMING_SECTIONS } from "@/lib/dashboard-sections";
+import { UPCOMING_SECTIONS } from "@/lib/dashboard-sections";
 
-const CARD = "rounded-2xl border border-stone-300 bg-white/85 p-5 shadow-sm";
 
 export default function Home() {
   return (
@@ -31,31 +30,7 @@ export default function Home() {
           >
             Áreas del backoffice
           </h2>
-          <ul className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DASHBOARD_SECTIONS.map((section) => (
-              <li key={section.href}>
-                <Link
-                  href={section.href}
-                  prefetch={false}
-                  className={`${CARD} group block h-full transition hover:border-teal-600`}
-                >
-                  <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-teal-700">
-                    {section.area}
-                  </p>
-                  <p className="mt-2 flex items-center justify-between gap-2 text-base font-medium text-stone-900">
-                    {section.title}
-                    <span
-                      aria-hidden="true"
-                      className="text-stone-400 transition group-hover:translate-x-0.5 group-hover:text-teal-700"
-                    >
-                      →
-                    </span>
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">{section.description}</p>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <SectionGrid />
           <p className="mt-4 text-sm text-stone-500">
             Próximamente: {UPCOMING_SECTIONS.join(" · ")}.
           </p>

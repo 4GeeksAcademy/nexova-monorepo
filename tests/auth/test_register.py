@@ -1,4 +1,4 @@
-"""POST /users — registro público."""
+"""POST /auth/register — registro público."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def test_registration_creates_an_active_regular_user_with_a_linked_profile(api, 
 def test_duplicate_email_with_other_capitalization_is_rejected(api, register):
     register("ana@example.com")
 
-    response = api.post("/users", json={"email": "ANA@Example.com", "password": DEFAULT_PASSWORD})
+    response = api.post("/auth/register", json={"email": "ANA@Example.com", "password": DEFAULT_PASSWORD})
 
     assert response.status_code == 400
     assert len(_stored_users()) == 1
@@ -55,7 +55,7 @@ def test_email_is_stored_normalized(register):
 
 @pytest.mark.parametrize(("password", "status"), [("a" * 8, 201), ("a" * 7, 422)])
 def test_password_length_boundary(api, password, status):
-    response = api.post("/users", json={"email": "ana@example.com", "password": password})
+    response = api.post("/auth/register", json={"email": "ana@example.com", "password": password})
 
     assert response.status_code == status
 
@@ -81,13 +81,13 @@ def test_password_with_surrounding_spaces_works_at_login_as_typed(register, logi
     ],
 )
 def test_invalid_payload_is_rejected_and_nothing_is_stored(api, payload):
-    assert api.post("/users", json=payload).status_code == 422
+    assert api.post("/auth/register", json=payload).status_code == 422
     assert _stored_users() == []
 
 
 def test_role_in_the_payload_is_ignored(api):
     response = api.post(
-        "/users",
+        "/auth/register",
         json={"email": "ana@example.com", "password": DEFAULT_PASSWORD, "role": "admin", "is_active": False},
     )
 

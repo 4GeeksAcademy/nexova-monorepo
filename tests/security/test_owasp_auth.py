@@ -86,7 +86,7 @@ def test_admin_can_list_accounts(api, register):
 
 
 def test_self_registration_cannot_escalate_role(api):
-    r = api.post("/users", json={"email": "x@x.com", "password": "Sup3r-secreta!", "role": "admin"})
+    r = api.post("/auth/register", json={"email": "x@x.com", "password": "Sup3r-secreta!", "role": "admin"})
     assert r.status_code == 201 and r.json()["role"] == "user"
 
 
